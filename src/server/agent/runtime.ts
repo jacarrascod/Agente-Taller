@@ -13,15 +13,10 @@ import type {
 } from "openai/resources/chat/completions";
 import { clienteLLM, MAX_ITERACIONES_TOOLS, MODELO_LLM, TEMPERATURA_LLM } from "./llm";
 import { NOMBRES_TOOLS, TOOLS_JSON_SCHEMA, ejecutarTool } from "./tools";
-import { evaluarGuardrailEntrada, respuestaTieneDatoSinRespaldo } from "./guardrails";
+import { evaluarGuardrailEntrada, respuestaEsEcoDelTurnoAnterior, respuestaTieneDatoSinRespaldo } from "./guardrails";
 import { plantillasRechazo, systemPrompt } from "./prompt";
 import { bloqueContextoFechaActual } from "../lib/fechas";
-import {
-  guardarMensaje,
-  obtenerHistorialReciente,
-  obtenerOCrearConversacion,
-  obtenerToolsEjecutadasEnConversacion,
-} from "./persistencia";
+import { guardarMensaje, obtenerHistorialReciente, obtenerOCrearConversacion } from "./persistencia";
 
 export type EventoAgente =
   | { tipo: "token"; texto: string }
@@ -131,13 +126,9 @@ function pareceIntentoDeToolIgnorado(texto: string): boolean {
 export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<EventoAgente> {
   let conversacionId: string | null = null;
   let historial: { rol: "user" | "assistant"; contenido: string }[] = [];
-  let toolsEjecutadasPrevias: string[] = [];
   try {
     conversacionId = await obtenerOCrearConversacion(entrada.sessionId);
-    [historial, toolsEjecutadasPrevias] = await Promise.all([
-      obtenerHistorialReciente(conversacionId, 20),
-      obtenerToolsEjecutadasEnConversacion(conversacionId),
-    ]);
+    historial = await obtenerHistorialReciente(conversacionId, 20);
   } catch (error) {
     console.error("No se pudo abrir la conversación:", error);
   }
@@ -326,30 +317,51 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
       let textoFinal = contenidoAcumulado.trim();
 
       // ── Capa 3: guardrail de salida ──────────────────────────────────
-      const toolsQueRespaldan = [...toolsEjecutadasEnTurno, ...toolsEjecutadasPrevias];
-      if (respuestaTieneDatoSinRespaldo(textoFinal, toolsQueRespaldan)) {
-        console.warn("Guardrail de salida activado: precio/hora sin tool de respaldo en la conversación.", {
-          sessionId: entrada.sessionId,
-          toolsEjecutadasEnTurno,
-          toolsEjecutadasPrevias,
-          textoDescartado: textoFinal,
-          reintento: intentosGuardrailSalida,
-        });
-        // Antes de rendirse: probablemente el modelo mencionó un dato de
-        // memoria en vez de llamar a la tool (ej. una hora de ejemplo del
-        // horario del taller). Se le da una oportunidad de corregirlo
-        // llamando a la tool correcta antes de caer al mensaje de fallo.
+      // El respaldo se exige del TURNO ACTUAL únicamente. Antes se aceptaba
+      // cualquier tool ya ejecutada en el resto de la conversación (pensado
+      // para recapitulaciones sin re-llamar la tool, R5) — pero eso permitía
+      // que una tool llamada para un producto/servicio distinto, minutos u
+      // horas antes, "respaldara" un precio u hora completamente ajenos.
+      // Confirmado en navegación real: preguntar por el precio del Express 5K
+      // recibió "S/ 199.00" (real: S/ 189.00) sin ninguna tool en ese turno,
+      // solo porque antes en la misma conversación se había consultado un
+      // repuesto distinto. Exigir el respaldo del propio turno cierra el
+      // hueco; si es una recapitulación legítima, el reintento de abajo le
+      // pide al modelo volver a llamar la tool (barato y siempre exacto).
+      const sinRespaldo = respuestaTieneDatoSinRespaldo(textoFinal, toolsEjecutadasEnTurno);
+      // DEF-24: el modelo a veces repite carácter por carácter su respuesta
+      // del turno anterior en vez de atender el mensaje nuevo (visto en
+      // navegación real contra el LLM real, no reproducible al 100 %).
+      const esEco = !sinRespaldo && respuestaEsEcoDelTurnoAnterior(textoFinal, historial, entrada.mensajeNuevo);
+      if (sinRespaldo || esEco) {
+        console.warn(
+          esEco
+            ? "Guardrail de salida activado: la respuesta repite el turno anterior sin atender el mensaje nuevo (DEF-24)."
+            : "Guardrail de salida activado: precio/hora sin tool de respaldo en este turno.",
+          {
+            sessionId: entrada.sessionId,
+            toolsEjecutadasEnTurno,
+            textoDescartado: textoFinal,
+            reintento: intentosGuardrailSalida,
+          },
+        );
+        // Antes de rendirse: se le da al modelo una oportunidad de
+        // corregirse (llamando a la tool correcta, o atendiendo el mensaje
+        // nuevo) antes de caer al mensaje de fallo.
         if (intentosGuardrailSalida < 1) {
           intentosGuardrailSalida += 1;
           mensajes.push({ role: "assistant", content: textoFinal });
           mensajes.push({
             role: "system",
-            content:
-              "Tu respuesta anterior mencionó un precio o una hora de cita sin haber llamado en este turno a la " +
-              "herramienta que lo respalda. No repitas ese dato de memoria: si es un precio, llama a " +
-              "buscar_repuestos o listar_mantenimientos; si es una hora de cita disponible, llama a " +
-              "consultar_disponibilidad_agenda. Si aún no tienes la fecha exacta que pide el cliente, pregúntasela " +
-              "en vez de sugerir una hora.",
+            content: esEco
+              ? `Tu respuesta anterior repitió, sin ningún cambio, lo que ya le habías dicho al cliente en el turno ` +
+                `previo. El cliente acaba de escribir un mensaje nuevo y distinto: "${entrada.mensajeNuevo}". ` +
+                `Respóndele específicamente a ese mensaje nuevo — no repitas la respuesta anterior.`
+              : "Tu respuesta anterior mencionó un precio o una hora de cita sin haber llamado en este turno a la " +
+                "herramienta que lo respalda. No repitas ese dato de memoria: si es un precio, llama a " +
+                "buscar_repuestos o listar_mantenimientos; si es una hora de cita disponible, llama a " +
+                "consultar_disponibilidad_agenda. Si aún no tienes la fecha exacta que pide el cliente, pregúntasela " +
+                "en vez de sugerir una hora.",
           });
           continue;
         }

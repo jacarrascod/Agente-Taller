@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   detectarMarcaAjena,
   evaluarGuardrailEntrada,
+  respuestaEsEcoDelTurnoAnterior,
   respuestaTieneDatoSinRespaldo,
 } from "@/server/agent/guardrails";
 
@@ -184,5 +185,60 @@ describe("detectarMarcaAjena — casos adicionales (UT-GRD-42..47)", () => {
   it("no detecta marca ajena en modelos Toyota con nombres ambiguos", () => {
     expect(detectarMarcaAjena("Tengo una Land Cruiser 2020")).toBeNull();
     expect(detectarMarcaAjena("Mi RAV4 hace un ruido raro")).toBeNull();
+  });
+});
+
+// DEF-24 (INFORME-E2E-NAVEGACION-REAL.md): navegando en vivo contra el LLM
+// real, una pregunta nueva y sin relación recibió como respuesta el texto
+// idéntico del turno anterior. Este guardrail lo detecta para poder darle
+// al modelo una oportunidad de corregirse en vez de dejarlo pasar.
+describe("respuestaEsEcoDelTurnoAnterior (capa 3, DEF-24)", () => {
+  const historialConCita = [
+    { rol: "user" as const, contenido: "¿Tengo alguna cita? mi correo es ana@ejemplo.com" },
+    { rol: "assistant" as const, contenido: "Hola Ana, sí tiene una cita confirmada para el lunes a las 10:00." },
+  ];
+
+  it("detecta cuando la respuesta repite el turno anterior ante una pregunta nueva", () => {
+    expect(
+      respuestaEsEcoDelTurnoAnterior(
+        "Hola Ana, sí tiene una cita confirmada para el lunes a las 10:00.",
+        historialConCita,
+        "¿Cuál es la capital de Francia?",
+      ),
+    ).toBe(true);
+  });
+
+  it("no marca nada cuando la respuesta es distinta de la anterior", () => {
+    expect(
+      respuestaEsEcoDelTurnoAnterior(
+        "Disculpe, solo atendemos consultas sobre Toyota. ¿En qué le ayudo?",
+        historialConCita,
+        "¿Cuál es la capital de Francia?",
+      ),
+    ).toBe(false);
+  });
+
+  it("no marca nada cuando el cliente repite la misma pregunta (la misma respuesta es correcta)", () => {
+    expect(
+      respuestaEsEcoDelTurnoAnterior(
+        "Hola Ana, sí tiene una cita confirmada para el lunes a las 10:00.",
+        historialConCita,
+        "¿Tengo alguna cita? mi correo es ana@ejemplo.com",
+      ),
+    ).toBe(false);
+  });
+
+  it("no marca nada en el primer turno de la conversación (sin historial previo)", () => {
+    expect(respuestaEsEcoDelTurnoAnterior("Hola, ¿en qué le ayudo?", [], "Hola")).toBe(false);
+  });
+
+  it("ignora diferencias de mayúsculas y espacios al comparar", () => {
+    expect(
+      respuestaEsEcoDelTurnoAnterior(
+        "  HOLA ANA, SÍ TIENE UNA CITA CONFIRMADA PARA EL LUNES A LAS 10:00.  ",
+        historialConCita,
+        "¿Cuál es la capital de Francia?",
+      ),
+    ).toBe(true);
   });
 });

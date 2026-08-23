@@ -51,28 +51,6 @@ export async function obtenerHistorialReciente(conversacionId: string, limite = 
     .map((m) => ({ rol: m.rol as "user" | "assistant", contenido: m.contenido as string }));
 }
 
-/**
- * Nombres de tools ya ejecutadas en la conversación (no solo el turno
- * actual). El guardrail de salida la usa para no bloquear turnos legítimos
- * de recapitulación/confirmación (R5) que no vuelven a llamar la tool que
- * ya respaldó ese dato en un turno anterior.
- */
-export async function obtenerToolsEjecutadasEnConversacion(conversacionId: string, limite = 20): Promise<string[]> {
-  const db = supabaseAdmin();
-  const { data, error } = await db
-    .from("mensajes")
-    .select("tool_nombre")
-    .eq("conversacion_id", conversacionId)
-    .eq("rol", "tool")
-    .order("creado_en", { ascending: false })
-    .limit(limite);
-  if (error) {
-    console.error("No se pudo leer las tools previas de la conversación:", error);
-    return [];
-  }
-  return Array.from(new Set((data ?? []).map((m) => m.tool_nombre as string | null).filter((n): n is string => Boolean(n))));
-}
-
 export interface DatosMensaje {
   rol: "user" | "assistant" | "tool" | "system";
   contenido?: string | null;

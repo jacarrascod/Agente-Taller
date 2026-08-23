@@ -45,8 +45,23 @@ export default async function PaginaRepuesto({ params }: Props) {
           <p className="text-xs font-bold uppercase tracking-wide text-acero">{repuesto.marca_repuesto}</p>
           <h1 className="mt-1 text-2xl font-bold text-tinta">{repuesto.nombre}</h1>
           <p className="mt-2 text-sm text-acero">
-            SKU: {repuesto.sku}
-            {repuesto.numero_parte ? ` · Número de parte: ${repuesto.numero_parte}` : ""}
+            SKU: <span className="dato text-tinta">{repuesto.sku}</span>
+            {repuesto.numero_parte ? (
+              <>
+                {" "}
+                · Número de parte: <span className="dato text-tinta">{repuesto.numero_parte}</span>
+              </>
+            ) : (
+              ""
+            )}
+            {repuesto.ubicacion_publica ? (
+              <>
+                {" "}
+                · Ubicación: <span className="dato text-tinta">{repuesto.ubicacion_publica}</span>
+              </>
+            ) : (
+              ""
+            )}
           </p>
 
           <div className="mt-4 flex items-center gap-3">

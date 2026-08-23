@@ -164,9 +164,14 @@ export async function listarRepuestos(filtros: FiltrosListadoRepuestos) {
   }
 
   const db = supabaseAdmin();
+  // El embed de categorías necesita el hint `!inner` para que PostgREST
+  // aplique el .eq() sobre él como filtro de las filas de repuestos y no
+  // lo ignore silenciosamente (sin `!inner` solo daría forma al JSON de
+  // salida, nunca filtraría).
+  const relacionCategoria = filtros.categoria ? "categorias!inner(nombre, slug)" : "categorias(nombre, slug)";
   let query = db
     .from("repuestos")
-    .select("id, sku, slug, nombre, descripcion, precio, imagen_url, categorias(nombre, slug)", {
+    .select(`id, sku, slug, nombre, descripcion, precio, imagen_url, ${relacionCategoria}`, {
       count: "exact",
     })
     .eq("activo", true);

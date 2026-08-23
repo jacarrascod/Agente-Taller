@@ -39,6 +39,7 @@ export function AgendaCliente({
   const [alternativas, setAlternativas] = useState<string[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [form, setForm] = useState({ nombre: "", email: "", telefono: "", modelo: "", anio: "", placa: "" });
+  const [erroresCampo, setErroresCampo] = useState<Partial<Record<"nombre" | "email" | "telefono" | "modelo", string>>>({});
 
   const mantenimientoSeleccionado = mantenimientos.find((m) => m.slug === servicio);
   const fechaInicioSemana = useMemo(() => sumarDiasYMD(hoyYMD(), semana * 7), [semana]);
@@ -61,8 +62,20 @@ export function AgendaCliente({
     };
   }, [fechaInicioSemana, fechaFinSemana]);
 
+  function validarFormulario(): boolean {
+    const errores: typeof erroresCampo = {};
+    if (!form.nombre.trim()) errores.nombre = "Ingrese su nombre completo.";
+    if (!form.email.trim()) errores.email = "Ingrese su correo electrónico.";
+    else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) errores.email = "Ese correo no parece válido.";
+    if (!form.telefono.trim()) errores.telefono = "Ingrese un teléfono de contacto.";
+    if (!form.modelo.trim()) errores.modelo = "Ingrese el modelo de su Toyota.";
+    setErroresCampo(errores);
+    return Object.keys(errores).length === 0;
+  }
+
   async function confirmarCita() {
     if (!slotSeleccionado || !mantenimientoSeleccionado) return;
+    if (!validarFormulario()) return;
     setEnviando(true);
     setError(null);
     setAlternativas([]);
@@ -188,46 +201,59 @@ export function AgendaCliente({
             {slotSeleccionado.hora}
           </p>
           <form
+            noValidate
             className="mt-4 space-y-3"
             onSubmit={(e) => {
               e.preventDefault();
               confirmarCita();
             }}
           >
-            <CampoFormulario label="Nombre completo" htmlFor="nombre">
+            <CampoFormulario label="Nombre completo" htmlFor="nombre" error={erroresCampo.nombre}>
               <Entrada
                 id="nombre"
                 required
                 value={form.nombre}
-                onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, nombre: e.target.value });
+                  setErroresCampo((prev) => ({ ...prev, nombre: undefined }));
+                }}
               />
             </CampoFormulario>
-            <CampoFormulario label="Correo electrónico" htmlFor="email">
+            <CampoFormulario label="Correo electrónico" htmlFor="email" error={erroresCampo.email}>
               <Entrada
                 id="email"
                 type="email"
                 required
                 value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, email: e.target.value });
+                  setErroresCampo((prev) => ({ ...prev, email: undefined }));
+                }}
               />
             </CampoFormulario>
-            <CampoFormulario label="Teléfono" htmlFor="telefono">
+            <CampoFormulario label="Teléfono" htmlFor="telefono" error={erroresCampo.telefono}>
               <Entrada
                 id="telefono"
                 required
                 value={form.telefono}
-                onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, telefono: e.target.value });
+                  setErroresCampo((prev) => ({ ...prev, telefono: undefined }));
+                }}
               />
             </CampoFormulario>
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
-                <CampoFormulario label="Modelo Toyota" htmlFor="modelo">
+                <CampoFormulario label="Modelo Toyota" htmlFor="modelo" error={erroresCampo.modelo}>
                   <Entrada
                     id="modelo"
                     required
                     placeholder="Ej: Corolla"
                     value={form.modelo}
-                    onChange={(e) => setForm({ ...form, modelo: e.target.value })}
+                    onChange={(e) => {
+                      setForm({ ...form, modelo: e.target.value });
+                      setErroresCampo((prev) => ({ ...prev, modelo: undefined }));
+                    }}
                   />
                 </CampoFormulario>
               </div>

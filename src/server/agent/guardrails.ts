@@ -192,3 +192,29 @@ export function respuestaTieneDatoSinRespaldo(texto: string, toolsEjecutadasEnTu
   }
   return false;
 }
+
+/**
+ * Capa 3 (defecto DEF-24 de INFORME-E2E-NAVEGACION-REAL.md): navegando en
+ * vivo contra el LLM real se observó que el modelo a veces repite, carácter
+ * por carácter, su respuesta del turno anterior en vez de atender el
+ * mensaje nuevo del cliente — un fallo de atención del modelo, no del
+ * ensamblado de mensajes (el mensaje nuevo sí llega correcto en el
+ * request). Se detecta comparando el texto final contra el último turno
+ * del asistente en el historial: si son iguales y el mensaje del cliente
+ * cambió, la respuesta no atendió lo que se le preguntó.
+ */
+export function respuestaEsEcoDelTurnoAnterior(
+  texto: string,
+  historial: { rol: "user" | "assistant"; contenido: string }[],
+  mensajeNuevo: string,
+): boolean {
+  const ultimoAsistente = [...historial].reverse().find((t) => t.rol === "assistant");
+  const ultimoUsuario = [...historial].reverse().find((t) => t.rol === "user");
+  if (!ultimoAsistente || !ultimoUsuario) return false;
+
+  const normalizar = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  const mismaRespuesta = normalizar(texto) === normalizar(ultimoAsistente.contenido);
+  const mismaPregunta = normalizar(mensajeNuevo) === normalizar(ultimoUsuario.contenido);
+
+  return mismaRespuesta && !mismaPregunta;
+}
