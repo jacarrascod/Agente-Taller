@@ -1530,7 +1530,9 @@ Errores: `CITA_NO_CANCELABLE` (no existe, el correo no coincide, o ya estaba can
      - devuelve los resultados al LLM
 6. Streamea la respuesta final al cliente por SSE
 7. Guardrail de salida: si el texto contiene un precio/hora sin tool previa
-   en el turno → se reemplaza por la plantilla de "fallo de tool" y se loguea
+   en el turno → se loguea el incidente, se reinyecta como corrección al
+   LLM (system message) y se le da UN reintento en el mismo turno; si
+   vuelve a fallar, se reemplaza por la plantilla de "fallo de tool"
 ```
 
 **Compatibilidad `AGENT_TOOL_MODE`** — el soporte de *function calling* nativo varía entre modelos de NVIDIA NIM. Por eso el runtime tiene dos modos:
@@ -1559,7 +1561,7 @@ const MARCAS_NO_TOYOTA = [
 
 **Capa 2 — el system prompt (R1, R2).**
 
-**Capa 3 — validación de salida:** si la respuesta final contiene un patrón de precio (`S/ \d`) o de horario ofrecido y en ese turno no se ejecutó `buscar_repuestos`/`consultar_disponibilidad_repuesto`/`consultar_disponibilidad_agenda`, se descarta la respuesta, se registra el incidente y se envía la plantilla de fallo. Es la red que hace verificable el objetivo O4.
+**Capa 3 — validación de salida:** si la respuesta final contiene un patrón de precio (`S/ \d`) o de horario ofrecido y en ese turno no se ejecutó `buscar_repuestos`/`consultar_disponibilidad_repuesto`/`consultar_disponibilidad_agenda`, se registra el incidente y **se le da al modelo un reintento**: se reinyecta la respuesta descartada junto con un mensaje de sistema explicando qué dato mencionó sin respaldo y qué tool debe llamar (típicamente el modelo repitió de memoria un horario genérico —p. ej. la hora de apertura— en vez de consultar la tool). Si el reintento también falla el guardrail, recién ahí se descarta y se envía la plantilla de fallo. Es la red que hace verificable el objetivo O4.
 
 ### 9.7 Diálogos de referencia
 
