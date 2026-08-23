@@ -172,6 +172,7 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
 
   const toolsEjecutadasEnTurno: string[] = [];
   let intentosNativoIgnorado = 0; // DEF-10: por turno, no por proceso
+  let intentosGuardrailSalida = 0;
   const cliente = clienteLLM();
 
   try {
@@ -332,7 +333,26 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
           toolsEjecutadasEnTurno,
           toolsEjecutadasPrevias,
           textoDescartado: textoFinal,
+          reintento: intentosGuardrailSalida,
         });
+        // Antes de rendirse: probablemente el modelo mencionó un dato de
+        // memoria en vez de llamar a la tool (ej. una hora de ejemplo del
+        // horario del taller). Se le da una oportunidad de corregirlo
+        // llamando a la tool correcta antes de caer al mensaje de fallo.
+        if (intentosGuardrailSalida < 1) {
+          intentosGuardrailSalida += 1;
+          mensajes.push({ role: "assistant", content: textoFinal });
+          mensajes.push({
+            role: "system",
+            content:
+              "Tu respuesta anterior mencionó un precio o una hora de cita sin haber llamado en este turno a la " +
+              "herramienta que lo respalda. No repitas ese dato de memoria: si es un precio, llama a " +
+              "buscar_repuestos o listar_mantenimientos; si es una hora de cita disponible, llama a " +
+              "consultar_disponibilidad_agenda. Si aún no tienes la fecha exacta que pide el cliente, pregúntasela " +
+              "en vez de sugerir una hora.",
+          });
+          continue;
+        }
         textoFinal = plantillasRechazo.falloDeTool();
       }
 
