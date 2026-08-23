@@ -43,14 +43,14 @@ insert into public.repuestos
   'Filtro de aire de motor 17801-0D060',
   'Elemento filtrante plisado de alta superficie para el motor 1.8L. Protege la admisión del polvo urbano de Lima y sostiene el rendimiento del sensor MAF.',
   (select id from public.categorias where slug='filtros'), '17801-0D060',
-  'Toyota Genuine Parts', 72.00, '/repuestos/filtro-aire.svg', 12,
+  'Toyota Genuine Parts', 72.00, '/repuestos/filtro-aire.jpg', 12,
   '{"largo_mm":227,"ancho_mm":204,"alto_mm":40}', false),
 
  ('TOY-FIL-0003','filtro-combustible-23300-0l041',
   'Filtro de combustible diésel 23300-0L041',
   'Filtro de alta eficiencia para motores 2.4L y 2.8L diésel, con separador de agua. Crítico para proteger el sistema common-rail.',
   (select id from public.categorias where slug='filtros'), '23300-0L041',
-  'Toyota Genuine Parts', 145.00, '/repuestos/filtro-combustible.svg', 12,
+  'Toyota Genuine Parts', 145.00, '/repuestos/filtro-combustible.jpg', 12,
   '{"eficiencia":"98% @ 5 micras","separador_agua":true}', false),
 
  ('TOY-FIL-0004','filtro-cabina-87139-0n010',
@@ -106,14 +106,14 @@ insert into public.repuestos
   'Correa de accesorios 90916-02660',
   'Correa poli-V de caucho EPDM que mueve alternador, dirección hidráulica y compresor A/C. Resistente al agrietamiento por calor.',
   (select id from public.categorias where slug='motor'), '90916-02660',
-  'Toyota Genuine Parts', 130.00, '/repuestos/correa.svg', 12,
+  'Toyota Genuine Parts', 130.00, '/repuestos/correa.jpg', 12,
   '{"perfil":"6PK","largo_mm":1875}', false),
 
  ('TOY-MOT-0003','bomba-agua-16100-09520',
   'Bomba de agua 16100-09520',
   'Bomba con sello mecánico reforzado y rodamiento sellado. Incluye empaquetadura. Cambio recomendado junto con el kit de distribución.',
   (select id from public.categorias where slug='motor'), '16100-09520',
-  'Aisin', 590.00, '/repuestos/bomba-agua.svg', 12,
+  'Aisin', 590.00, '/repuestos/bomba-agua.jpg', 12,
   '{"incluye_empaquetadura":true}', false),
 
  ('TOY-MOT-0004','kit-distribucion-cadena-13506-0l010',
