@@ -1,0 +1,253 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────
+   Dirección de arte — SPEC.md §13.1 "Catálogo técnico".
+   El producto vende confianza en el dato, así que el lenguaje visual es
+   el del manual de servicio: ficha de orden de trabajo, gris cemento,
+   tinta impresa y todo identificador en monoespaciada.
+   Sin modo oscuro en v1.
+   ───────────────────────────────────────────────────────────────────── */
+:root {
+  --rojo-toyota: #eb0a1e;
+  --rojo-oscuro: #b00814;
+  --negro-motor: #0b0b0c;
+  --gris-taller: #eeeff1;
+  --amarillo-senal: #f2b705;
+  --tinta: #16181d;
+  --acero: #5a5f66;
+  --verde-taller: #17795e;
+  --filete: #c9cbd0;
+  --papel: #f7f8f9;
+
+  --background: var(--gris-taller);
+  --foreground: var(--tinta);
+
+  /* Movimiento — §13.6. El movimiento comunica estado, no adorna. */
+  --dur-micro: 120ms;
+  --dur-elem: 240ms;
+  --dur-secuencia: 700ms;
+  --ease-entra: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-sale: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@theme inline {
+  --color-rojo-toyota: var(--rojo-toyota);
+  --color-rojo-oscuro: var(--rojo-oscuro);
+  --color-negro-motor: var(--negro-motor);
+  --color-gris-taller: var(--gris-taller);
+  --color-amarillo-senal: var(--amarillo-senal);
+  --color-tinta: var(--tinta);
+  --color-acero: var(--acero);
+  --color-verde-taller: var(--verde-taller);
+  --color-filete: var(--filete);
+  --color-papel: var(--papel);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --font-sans: var(--fuente-texto), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--fuente-display), var(--fuente-texto), system-ui, sans-serif;
+  --font-mono: var(--fuente-mono), ui-monospace, "SF Mono", "Cascadia Mono", monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+* {
+  border-color: var(--filete);
+}
+
+/* §13.8 — el foco nunca se elimina. Filete de tinta, no rojo: sobre el
+   fondo gris el rojo se queda en 4.0:1 y no cumple AA. */
+:focus-visible {
+  outline: 2px solid var(--tinta);
+  outline-offset: 2px;
+}
+
+/* ── Tipografía ────────────────────────────────────────────────────── */
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+/* Todo identificador del sistema —SKU, número de parte, código de cita,
+   ubicación de rack, hora de slot— comparte tratamiento. §13.1 */
+.dato {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.etiqueta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── La ficha de taller ────────────────────────────────────────────── */
+
+/* La esquina recortada evoca la etiqueta de cartón que cuelga del espejo
+   mientras el carro está en el taller. Único gesto decorativo del sistema
+   y solo aparece en las fichas. */
+.ficha {
+  background: var(--papel);
+  border: 1px solid var(--filete);
+  border-radius: 2px;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+}
+
+.ficha-banda {
+  background: var(--negro-motor);
+  color: #fff;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Tira de datos al pie de la ficha: celdas separadas por filetes de 1 px,
+   sin sombras. La separación es impresa, no flotante. */
+.ficha-datos {
+  display: grid;
+  border-top: 1px solid var(--filete);
+}
+
+.ficha-datos > * {
+  padding: 8px 10px;
+  border-top: 1px solid var(--filete);
+}
+
+.ficha-datos > *:first-child {
+  border-top: 0;
+}
+
+/* A partir de sm la tira va en fila y los filetes pasan a ser verticales. */
+@media (min-width: 640px) {
+  .ficha-datos > * {
+    border-top: 0;
+    border-left: 1px solid var(--filete);
+  }
+
+  .ficha-datos > *:first-child {
+    border-left: 0;
+  }
+}
+
+/* Papel milimetrado del manual, al 4 %. Nunca porta información. */
+.reticula {
+  background-image:
+    linear-gradient(to right, rgba(22, 24, 29, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(22, 24, 29, 0.04) 1px, transparent 1px);
+  background-size: 8px 8px;
+}
+
+/* ── Movimiento ────────────────────────────────────────────────────── */
+
+/* Barrido de la herramienta en curso: la animación más importante del
+   producto, porque convierte una espera muda en una explicación. §13.6 */
+@keyframes barrido-tool {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.tool-barrido::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  width: 25%;
+  background: var(--rojo-toyota);
+  animation: barrido-tool 1.2s var(--ease-entra) infinite;
+}
+
+@keyframes entra-abajo {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.entra {
+  animation: entra-abajo var(--dur-elem) var(--ease-entra) both;
+}
+
+/* Dibujo de las líneas guía del despiece del hero. Técnica de
+   stroke-dashoffset; el titular no se anima para no castigar el LCP. */
+@keyframes trazo {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.trazo-guia {
+  stroke-dasharray: 240;
+  stroke-dashoffset: 240;
+  animation: trazo 500ms var(--ease-entra) forwards;
+}
+
+@keyframes cursor-parpadeo {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.cursor-stream {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  vertical-align: text-bottom;
+  background: var(--tinta);
+  animation: cursor-parpadeo 1s steps(1) infinite;
+}
+
+/* §13.6 — obligatorio, no opcional. El estado de la herramienta sigue
+   siendo perceptible por texto cuando el movimiento se desactiva. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .trazo-guia {
+    stroke-dashoffset: 0;
+  }
+
+  .tool-barrido::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.35;
+  }
+}
+
+.linea-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

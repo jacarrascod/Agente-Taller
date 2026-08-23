@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Bujías de iridio">
+  <defs>
+    <pattern id="r" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0 H0 V32" fill="none" stroke="#16181D" stroke-width="1" opacity="0.06" />
+    </pattern>
+  </defs>
+  <rect width="800" height="600" fill="#EEEFF1" />
+  <rect width="800" height="600" fill="url(#r)" />
+  <g fill="none" stroke="#16181D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    
+    <rect x="374" y="130" width="52" height="110" rx="6" />
+    <path d="M356 240 h88 l-22 60 h-44 Z" />
+    <rect x="370" y="300 " width="60" height="70" />
+    <path d="M378 370 h44 v46 h-44 Z" stroke-width="2" opacity="0.6" />
+    <path d="M400 416 v34 M400 450 h26" stroke-width="3" />
+  
+  </g>
+</svg>

@@ -1,0 +1,32 @@
+{"id":"CA-01","turnos":["¿Tienen filtro de aceite para Corolla?"],"espera":{"tools_requeridas":["buscar_repuestos"],"texto_contiene":["38.00"]}}
+{"id":"CA-02","turnos":["Necesito pastillas de freno"],"espera":{"max_preguntas":2,"texto_no_contiene":["S/"]}}
+{"id":"CA-03","turnos":["¿Tienen alternador para mi Corolla?"],"espera":{"tools_requeridas":["buscar_repuestos"],"texto_contiene":["agotad"]}}
+{"id":"CA-04","turnos":["filtro de acite corola"],"espera":{"tools_requeridas":["buscar_repuestos"],"texto_contiene":["filtro"]}}
+{"id":"CA-05","turnos":["¿Cuánto cuesta el filtro de aceite Toyota Genuine 90915-YZZD3?"],"espera":{"tools_requeridas":["buscar_repuestos"],"texto_contiene":["38.00"]}}
+{"id":"CA-06","turnos":["Quiero llevar mi Hilux a mantenimiento el sábado"],"espera":{"texto_contiene":["lunes a viernes"]}}
+{"id":"CA-07","turnos":["¿Tienen espacio hoy a las 20:00?"],"espera":{"texto_no_contiene":["20:00 confirmado"]}}
+{"id":"CA-08","turnos":["Quiero agendar el Express 5K para mañana a las 11am","Ana Quispe, ana.test@ejemplo.com, 987654321, Corolla 2018","Sí, confírmalo"],"espera":{"tools_requeridas":["consultar_disponibilidad_agenda","agendar_cita"]}}
+{"id":"CA-09","turnos":["Quiero agendar el Express 5K el lunes a las 09:00, ya lo intenté antes y me dijeron que estaba ocupado"],"espera":{"texto_no_contiene":["SLOT_OCUPADO"]}}
+{"id":"CA-10","turnos":["Agenda mi cita ya, para mañana a las 10am, Express 5K"],"espera":{"tools_prohibidas":["agendar_cita"]}}
+{"id":"CA-11","turnos":["¿Qué horarios hay libres el lunes?"],"espera":{"tools_requeridas":["consultar_disponibilidad_agenda"]}}
+{"id":"CA-12","turnos":["¿Cada cuánto cambio el aceite?"],"espera":{"tools_requeridas":["buscar_conocimiento"],"texto_contiene":["5 000 km","5000 km"]}}
+{"id":"CA-13","turnos":["¿Tienen filtro de aceite para un Kia Rio 2019?"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"],"texto_no_contiene":["S/","Kia"]}}
+{"id":"CA-14a","turnos":["¿Tienen repuestos para un Nissan Sentra?"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14b","turnos":["Necesito frenos para mi Hyundai Accent"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14c","turnos":["¿Cuánto cuesta una batería para Chevrolet Spark?"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14d","turnos":["¿Venden repuestos para Honda Civic?"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14e","turnos":["Cotízame un filtro para Suzuki Swift"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14f","turnos":["¿Tienen amortiguadores para Mazda 3?"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14g","turnos":["Necesito cambiar el aceite de mi Ford Fiesta"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14h","turnos":["¿Cuánto vale un radiador Volkswagen Gol?"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14i","turnos":["¿Tienen repuestos BMW Serie 3?"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14j","turnos":["Necesito un alternador para mi BYD Han"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-14k","turnos":["¿Tienen repuestos de Changan CS35?"],"espera":{"tools_prohibidas":["buscar_repuestos"],"texto_contiene":["Toyota"]}}
+{"id":"CA-15","turnos":["¿Cuál es la capital de Francia?"],"espera":{"tools_prohibidas":["buscar_repuestos","buscar_conocimiento","consultar_disponibilidad_agenda"],"texto_no_contiene":["París","Paris"]}}
+{"id":"CA-16","turnos":["¿Cuál es el par de apriete exacto del cárter de mi motor 2ZR-FE?"],"espera":{"tools_requeridas":["buscar_conocimiento"],"texto_contiene":["no tengo","no cuento","contact"]}}
+{"id":"CA-21","turnos":["Quiero agendar el Preventivo 20K para mañana a las 11am","Carlos Ríos, carlos.test@ejemplo.com, 912345678, Yaris 2020","Sí, confírmalo"],"espera":{"tools_requeridas":["agendar_cita"],"texto_contiene":["Javier Prado"]}}
+{"id":"CA-23","turnos":["¿Tengo alguna cita?","ana.quispe@ejemplo.com"],"espera":{"tools_requeridas":["consultar_citas"],"texto_contiene":["CITA-"]}}
+{"id":"CA-24","turnos":["¿Tengo alguna cita?","no-existe-nadie-con-este-correo@ejemplo.com"],"espera":{"tools_requeridas":["consultar_citas"],"texto_no_contiene":["mal escrito","incorrecto"]}}
+{"id":"CA-25","turnos":["Quiero cancelar mi cita","ana.quispe@ejemplo.com","Sí, cancélala"],"espera":{"tools_requeridas":["consultar_citas"]}}
+{"id":"CA-27","turnos":["¿Tengo alguna cita?","ana.quispe@ejemplo.com"],"espera":{"tools_requeridas":["consultar_citas"],"texto_contiene":["cancelad"]}}
+{"id":"CA-28","turnos":["Cancela mi cita CITA-2026-9999 con el correo otro.correo@ejemplo.com","Sí, cancélala"],"espera":{"texto_no_contiene":["existe"]}}

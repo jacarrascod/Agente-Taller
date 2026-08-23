@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Filtro de combustible">
+  <defs>
+    <pattern id="r" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0 H0 V32" fill="none" stroke="#16181D" stroke-width="1" opacity="0.06" />
+    </pattern>
+  </defs>
+  <rect width="800" height="600" fill="#EEEFF1" />
+  <rect width="800" height="600" fill="url(#r)" />
+  <g fill="none" stroke="#16181D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    
+    <ellipse cx="400" cy="180" rx="86" ry="26" />
+    <path d="M314 180 V390 a86 26 0 0 0 172 0 V180" />
+    <path d="M350 204 V404" stroke-width="2" opacity="0.5" />
+    <path d="M383 210 V410" stroke-width="2" opacity="0.5" />
+    <path d="M417 210 V410" stroke-width="2" opacity="0.5" />
+    <path d="M450 204 V404" stroke-width="2" opacity="0.5" />
+    <path d="M360 438 h80 M368 454 h64" stroke-width="3" opacity="0.7" />
+  
+  </g>
+</svg>

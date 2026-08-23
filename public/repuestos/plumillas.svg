@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Plumillas (par)">
+  <defs>
+    <pattern id="r" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0 H0 V32" fill="none" stroke="#16181D" stroke-width="1" opacity="0.06" />
+    </pattern>
+  </defs>
+  <rect width="800" height="600" fill="#EEEFF1" />
+  <rect width="800" height="600" fill="url(#r)" />
+  <g fill="none" stroke="#16181D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    
+    <path d="M200 310 h400" stroke-width="6" />
+    <path d="M220 288 h360" stroke-width="2" opacity="0.6" />
+    <rect x="374" y="238" width="52" height="50" rx="6" />
+    <path d="M260 288 v22 M540 288 v22" stroke-width="2" opacity="0.6" />
+  
+  </g>
+</svg>

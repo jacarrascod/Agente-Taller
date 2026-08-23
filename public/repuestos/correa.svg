@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Correa de accesorios">
+  <defs>
+    <pattern id="r" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0 H0 V32" fill="none" stroke="#16181D" stroke-width="1" opacity="0.06" />
+    </pattern>
+  </defs>
+  <rect width="800" height="600" fill="#EEEFF1" />
+  <rect width="800" height="600" fill="url(#r)" />
+  <g fill="none" stroke="#16181D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    
+    <circle cx="280" cy="300" r="62" />
+    <circle cx="280" cy="300" r="26" stroke-width="2" opacity="0.6" />
+    <circle cx="510" cy="300" r="96" />
+    <circle cx="510" cy="300" r="40" stroke-width="2" opacity="0.6" />
+    <path d="M272 238 H502 M272 362 H502" stroke-width="2" opacity="0.5" />
+  
+  </g>
+</svg>

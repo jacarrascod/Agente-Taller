@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Mantenimiento Mayor 40K">
+  <defs>
+    <pattern id="r" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0 H0 V32" fill="none" stroke="#16181D" stroke-width="1" opacity="0.06" />
+    </pattern>
+  </defs>
+  <rect width="800" height="600" fill="#EEEFF1" />
+  <rect width="800" height="600" fill="url(#r)" />
+  <g fill="none" stroke="#16181D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    
+    <circle cx="400" cy="300" r="170" />
+    <circle cx="400" cy="300" r="124" stroke-width="2" opacity="0.6" />
+    <circle cx="400" cy="300" r="52" />
+    <circle cx="400.0" cy="208.0" r="13" /><circle cx="487.5" cy="271.6" r="13" /><circle cx="454.1" cy="374.4" r="13" /><circle cx="345.9" cy="374.4" r="13" /><circle cx="312.5" cy="271.6" r="13" /><path d="M528.0 300.0 L560.0 300.0" stroke-width="2" opacity="0.5" /><path d="M490.5 390.5 L513.1 413.1" stroke-width="2" opacity="0.5" /><path d="M400.0 428.0 L400.0 460.0" stroke-width="2" opacity="0.5" /><path d="M309.5 390.5 L286.9 413.1" stroke-width="2" opacity="0.5" /><path d="M272.0 300.0 L240.0 300.0" stroke-width="2" opacity="0.5" /><path d="M309.5 209.5 L286.9 186.9" stroke-width="2" opacity="0.5" /><path d="M400.0 172.0 L400.0 140.0" stroke-width="2" opacity="0.5" /><path d="M490.5 209.5 L513.1 186.9" stroke-width="2" opacity="0.5" />
+  
+  </g>
+</svg>

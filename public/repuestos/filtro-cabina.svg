@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Filtro de cabina">
+  <defs>
+    <pattern id="r" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0 H0 V32" fill="none" stroke="#16181D" stroke-width="1" opacity="0.06" />
+    </pattern>
+  </defs>
+  <rect width="800" height="600" fill="#EEEFF1" />
+  <rect width="800" height="600" fill="url(#r)" />
+  <g fill="none" stroke="#16181D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    
+    <rect x="250" y="200" width="300" height="200" rx="8" />
+    <rect x="266" y="218" width="268" height="164" stroke-width="2" opacity="0.6" />
+    <path d="M270 222 V378" stroke-width="2" opacity="0.5" /><path d="M296 222 V378" stroke-width="2" opacity="0.5" /><path d="M322 222 V378" stroke-width="2" opacity="0.5" /><path d="M348 222 V378" stroke-width="2" opacity="0.5" /><path d="M374 222 V378" stroke-width="2" opacity="0.5" /><path d="M400 222 V378" stroke-width="2" opacity="0.5" /><path d="M426 222 V378" stroke-width="2" opacity="0.5" /><path d="M452 222 V378" stroke-width="2" opacity="0.5" /><path d="M478 222 V378" stroke-width="2" opacity="0.5" /><path d="M504 222 V378" stroke-width="2" opacity="0.5" /><path d="M530 222 V378" stroke-width="2" opacity="0.5" />
+  
+  </g>
+</svg>
