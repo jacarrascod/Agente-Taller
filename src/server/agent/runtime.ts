@@ -7,11 +7,12 @@
 //   6. Guardrail de salida — descarta precios/horas sin tool que los respalde.
 
 import "server-only";
+import OpenAI from "openai";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionMessageToolCall,
 } from "openai/resources/chat/completions";
-import { clienteLLM, MAX_ITERACIONES_TOOLS, MODELO_LLM, TEMPERATURA_LLM } from "./llm";
+import { clienteLLM, MAX_ITERACIONES_TOOLS, MODELO_LLM, REINTENTOS_LLM, TEMPERATURA_LLM } from "./llm";
 import { NOMBRES_TOOLS, TOOLS_JSON_SCHEMA, ejecutarTool } from "./tools";
 import {
   evaluarGuardrailEntrada,
@@ -128,6 +129,32 @@ function pareceIntentoDeToolIgnorado(texto: string): boolean {
   return /"tool"\s*:/.test(texto) || /\bagendar_cita\b|\bbuscar_repuestos\b/.test(texto);
 }
 
+// El reintento interno del SDK de OpenAI (maxRetries en llm.ts) solo cubre la
+// conexión inicial: si el stream ya empezó a llegar y se corta a medio
+// camino, eso escapa a ese mecanismo y llega hasta acá como una excepción.
+// Medido en INFORME-LATENCIA-CHAT.md: Groq (gpt-oss-120b) mostró ~15-20% de
+// OpenAI.APIConnectionError ("Connection error.") incluso respetando el
+// presupuesto de tokens/min de la cuenta gratuita — de ahí este reintento
+// explícito, además del de llm.ts.
+function esErrorReintentable(error: unknown): boolean {
+  return (
+    error instanceof OpenAI.APIConnectionError ||
+    error instanceof OpenAI.RateLimitError ||
+    error instanceof OpenAI.InternalServerError
+  );
+}
+
+function calcularEsperaReintentoMs(error: unknown, intento: number): number {
+  if (error instanceof OpenAI.RateLimitError) {
+    const retryAfter = error.headers?.["retry-after"];
+    const segundos = retryAfter ? Number(retryAfter) : NaN;
+    if (!Number.isNaN(segundos) && segundos > 0) {
+      return Math.min(segundos * 1000, 10_000); // tope de 10s para no colgar el turno
+    }
+  }
+  return 500 * intento; // backoff corto: 500ms, 1000ms, ...
+}
+
 export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<EventoAgente> {
   let conversacionId: string | null = null;
   let historial: { rol: "user" | "assistant"; contenido: string }[] = [];
@@ -187,7 +214,7 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
       const usaToolsNativas = modo === "native";
 
       let contenidoAcumulado = "";
-      const toolCallsAcumuladas: { id: string; nombre: string; argsTexto: string }[] = [];
+      let toolCallsAcumuladas: { id: string; nombre: string; argsTexto: string }[] = [];
       let huboErrorTools400 = false;
       // Corte anticipado (SPEC.md §9.5): se corta la generación apenas el
       // guardrail de salida es inequívocamente violado, en vez de esperar
@@ -195,57 +222,90 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
       // las "capas" 1-3 de guardrails de §9.6: esto no es una capa nueva,
       // es la misma capa 3 evaluada antes.
       let cortadoAnticipadamente = false;
+      let reintentosLlm = 0;
       const inicioLlamadaLlm = Date.now();
 
-      try {
-        const stream = await cliente.chat.completions.create({
-          model: MODELO_LLM,
-          messages: mensajes,
-          temperature: TEMPERATURA_LLM,
-          stream: true,
-          ...(usaToolsNativas ? { tools: TOOLS_JSON_SCHEMA, tool_choice: "auto" as const } : {}),
-        });
+      for (;;) {
+        // Un reintento repite la llamada desde cero (no se puede retomar un
+        // stream a medias), así que cualquier contenido de un intento fallido
+        // anterior se descarta por completo.
+        contenidoAcumulado = "";
+        toolCallsAcumuladas = [];
+        cortadoAnticipadamente = false;
 
-        for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta;
-          if (delta?.content) {
-            contenidoAcumulado += delta.content;
-          }
-          if (delta?.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index;
-              if (!toolCallsAcumuladas[idx]) {
-                toolCallsAcumuladas[idx] = { id: tc.id ?? `call_${idx}`, nombre: "", argsTexto: "" };
+        try {
+          const stream = await cliente.chat.completions.create({
+            model: MODELO_LLM,
+            messages: mensajes,
+            temperature: TEMPERATURA_LLM,
+            stream: true,
+            ...(usaToolsNativas ? { tools: TOOLS_JSON_SCHEMA, tool_choice: "auto" as const } : {}),
+          });
+
+          for await (const chunk of stream) {
+            const delta = chunk.choices[0]?.delta;
+            if (delta?.content) {
+              contenidoAcumulado += delta.content;
+            }
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index;
+                if (!toolCallsAcumuladas[idx]) {
+                  toolCallsAcumuladas[idx] = { id: tc.id ?? `call_${idx}`, nombre: "", argsTexto: "" };
+                }
+                if (tc.function?.name) toolCallsAcumuladas[idx].nombre += tc.function.name;
+                if (tc.function?.arguments) toolCallsAcumuladas[idx].argsTexto += tc.function.arguments;
               }
-              if (tc.function?.name) toolCallsAcumuladas[idx].nombre += tc.function.name;
-              if (tc.function?.arguments) toolCallsAcumuladas[idx].argsTexto += tc.function.arguments;
+            }
+
+            // Solo en modo nativo: en modo json el tool call viaja como texto
+            // JSON dentro de `content`, y un `inicio_iso` a medio construir
+            // contiene literalmente "09:00" — sería un falso corte seguro.
+            // La condición se reevalúa en cada chunk: si el modelo revela un
+            // tool call durante el margen de gracia, el corte se cancela.
+            if (
+              usaToolsNativas &&
+              toolCallsAcumuladas.filter(Boolean).length === 0 &&
+              respuestaParcialTieneDatoSinRespaldo(contenidoAcumulado, toolsEjecutadasEnTurno)
+            ) {
+              cortadoAnticipadamente = true;
+              break;
             }
           }
-
-          // Solo en modo nativo: en modo json el tool call viaja como texto
-          // JSON dentro de `content`, y un `inicio_iso` a medio construir
-          // contiene literalmente "09:00" — sería un falso corte seguro.
-          // La condición se reevalúa en cada chunk: si el modelo revela un
-          // tool call durante el margen de gracia, el corte se cancela.
-          if (
-            usaToolsNativas &&
-            toolCallsAcumuladas.filter(Boolean).length === 0 &&
-            respuestaParcialTieneDatoSinRespaldo(contenidoAcumulado, toolsEjecutadasEnTurno)
-          ) {
-            cortadoAnticipadamente = true;
+          // El `break` de arriba basta para liberar la conexión: el iterador
+          // del SDK aborta la petición en curso en su `finally` (openai
+          // streaming.js "If the user `break`s, abort the ongoing request").
+          // No hace falta un `stream.controller.abort()` explícito, y llamarlo
+          // dentro del `for await` sería contraproducente.
+          break; // llegó completa (o se cortó anticipadamente: no es un error)
+        } catch (error) {
+          const status = (error as { status?: number })?.status;
+          if (usaToolsNativas && (status === 400 || status === 422) && modoConfigurado() === "auto") {
+            huboErrorTools400 = true;
             break;
           }
-        }
-        // El `break` de arriba basta para liberar la conexión: el iterador
-        // del SDK aborta la petición en curso en su `finally` (openai
-        // streaming.js "If the user `break`s, abort the ongoing request").
-        // No hace falta un `stream.controller.abort()` explícito, y llamarlo
-        // dentro del `for await` sería contraproducente.
-      } catch (error) {
-        const status = (error as { status?: number })?.status;
-        if (usaToolsNativas && (status === 400 || status === 422) && modoConfigurado() === "auto") {
-          huboErrorTools400 = true;
-        } else {
+          if (esErrorReintentable(error) && reintentosLlm < REINTENTOS_LLM) {
+            reintentosLlm += 1;
+            const esperaMs = calcularEsperaReintentoMs(error, reintentosLlm);
+            console.warn("Llamada al LLM falló con un error transitorio; reintentando.", {
+              sessionId: entrada.sessionId,
+              iteracion,
+              intento: reintentosLlm,
+              maxReintentos: REINTENTOS_LLM,
+              esperaMs,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            await new Promise((res) => setTimeout(res, esperaMs));
+            continue;
+          }
+          if (esErrorReintentable(error)) {
+            console.error("Llamada al LLM: se agotaron los reintentos ante un error transitorio.", {
+              sessionId: entrada.sessionId,
+              iteracion,
+              reintentosLlm,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
           throw error;
         }
       }
@@ -259,6 +319,7 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
         modo,
         duracionMs: Date.now() - inicioLlamadaLlm,
         cortadoAnticipadamente,
+        reintentosLlm,
         toolsEjecutadasEnTurno,
       });
 
