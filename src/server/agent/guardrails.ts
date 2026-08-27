@@ -194,6 +194,53 @@ export function respuestaTieneDatoSinRespaldo(texto: string, toolsEjecutadasEnTu
 }
 
 /**
+ * Margen de texto que debe llegar DESPUÉS del dato detectado antes de
+ * decidir el corte anticipado. Cumple dos funciones:
+ *   1. Deja que "09:00" alcance a completarse como el rango fijo del
+ *      taller ("09:00 a 17:00"), que está exento (DEF-02). El separador
+ *      más largo que acepta PATRON_HORARIO_TALLER es " hasta 17:00" (12
+ *      caracteres), así que 25 da el doble de holgura.
+ *   2. Le da al modelo una ventana de gracia para revelar un tool_call
+ *      tras un preámbulo en prosa — si lo hace, el guardián de
+ *      `toolCallsAcumuladas` en runtime.ts cancela el corte.
+ * Subirlo demasiado deja pasar párrafos que ya son violaciones claras
+ * (era el defecto de la primera versión, con 40): el corte llegaba tarde
+ * y se perdía buena parte del ahorro.
+ */
+const MARGEN_CORTE_ANTICIPADO = 25;
+
+/**
+ * Versión incremental de `respuestaTieneDatoSinRespaldo`, para cortar el
+ * stream del LLM apenas la violación es inequívoca en vez de esperar a
+ * que termine de generar el párrafo entero (ver runtime.ts). Usa el MISMO
+ * criterio de respaldo: no cambia qué se considera respaldado, solo
+ * cuándo se evalúa. Ante la duda devuelve `false` (esperar más texto);
+ * la evaluación definitiva sigue siendo la de texto completo.
+ */
+export function respuestaParcialTieneDatoSinRespaldo(
+  textoParcial: string,
+  toolsEjecutadasEnTurno: string[],
+): boolean {
+  const matchPrecio = PATRON_PRECIO.exec(textoParcial);
+  if (matchPrecio && !toolsEjecutadasEnTurno.some((t) => TOOLS_QUE_JUSTIFICAN_PRECIO.has(t))) {
+    if (textoParcial.length - (matchPrecio.index + matchPrecio[0].length) >= MARGEN_CORTE_ANTICIPADO) {
+      return true;
+    }
+  }
+
+  const matchHora = PATRON_HORA.exec(textoParcial);
+  if (!matchHora) return false;
+  if (textoParcial.length - (matchHora.index + matchHora[0].length) < MARGEN_CORTE_ANTICIPADO) {
+    return false;
+  }
+  const textoSinHorarioDelTaller = textoParcial.replace(PATRON_HORARIO_TALLER, "");
+  return (
+    PATRON_HORA.test(textoSinHorarioDelTaller) &&
+    !toolsEjecutadasEnTurno.some((t) => TOOLS_QUE_JUSTIFICAN_HORA.has(t))
+  );
+}
+
+/**
  * Capa 3 (defecto DEF-24 de INFORME-E2E-NAVEGACION-REAL.md): navegando en
  * vivo contra el LLM real se observó que el modelo a veces repite, carácter
  * por carácter, su respuesta del turno anterior en vez de atender el

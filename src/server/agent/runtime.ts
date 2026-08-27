@@ -13,7 +13,12 @@ import type {
 } from "openai/resources/chat/completions";
 import { clienteLLM, MAX_ITERACIONES_TOOLS, MODELO_LLM, TEMPERATURA_LLM } from "./llm";
 import { NOMBRES_TOOLS, TOOLS_JSON_SCHEMA, ejecutarTool } from "./tools";
-import { evaluarGuardrailEntrada, respuestaEsEcoDelTurnoAnterior, respuestaTieneDatoSinRespaldo } from "./guardrails";
+import {
+  evaluarGuardrailEntrada,
+  respuestaEsEcoDelTurnoAnterior,
+  respuestaParcialTieneDatoSinRespaldo,
+  respuestaTieneDatoSinRespaldo,
+} from "./guardrails";
 import { plantillasRechazo, systemPrompt } from "./prompt";
 import { bloqueContextoFechaActual } from "../lib/fechas";
 import { guardarMensaje, obtenerHistorialReciente, obtenerOCrearConversacion } from "./persistencia";
@@ -133,17 +138,27 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
     console.error("No se pudo abrir la conversación:", error);
   }
 
+  // La traza es obligatoria (SPEC.md §6.2/§15), pero no es prerrequisito de
+  // nada de lo que sigue: se lanza aquí y se espera al final del turno, para
+  // que el round-trip a Supabase se solape con la llamada al LLM en vez de
+  // sumarse a ella. `guardarMensaje` ya captura sus propios errores.
+  const escriturasEnVuelo: Promise<void>[] = [];
   if (conversacionId) {
-    await guardarMensaje(conversacionId, { rol: "user", contenido: entrada.mensajeNuevo });
+    escriturasEnVuelo.push(
+      guardarMensaje(conversacionId, { rol: "user", contenido: entrada.mensajeNuevo }),
+    );
   }
 
   // ── Capa 1: guardrail determinista, antes del LLM ──────────────────
   const guardrailEntrada = evaluarGuardrailEntrada(entrada.mensajeNuevo);
   if (guardrailEntrada.bloquear) {
     const texto = plantillasRechazo.otraMarca(guardrailEntrada.marcaDetectada ?? "");
-    if (conversacionId) await guardarMensaje(conversacionId, { rol: "assistant", contenido: texto });
+    if (conversacionId) {
+      escriturasEnVuelo.push(guardarMensaje(conversacionId, { rol: "assistant", contenido: texto }));
+    }
     yield { tipo: "token", texto };
     yield { tipo: "done", textoFinal: texto };
+    await Promise.all(escriturasEnVuelo);
     return;
   }
 
@@ -174,6 +189,13 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
       let contenidoAcumulado = "";
       const toolCallsAcumuladas: { id: string; nombre: string; argsTexto: string }[] = [];
       let huboErrorTools400 = false;
+      // Corte anticipado (SPEC.md §9.5): se corta la generación apenas el
+      // guardrail de salida es inequívocamente violado, en vez de esperar
+      // el párrafo completo que igual se va a descartar. No confundir con
+      // las "capas" 1-3 de guardrails de §9.6: esto no es una capa nueva,
+      // es la misma capa 3 evaluada antes.
+      let cortadoAnticipadamente = false;
+      const inicioLlamadaLlm = Date.now();
 
       try {
         const stream = await cliente.chat.completions.create({
@@ -199,7 +221,26 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
               if (tc.function?.arguments) toolCallsAcumuladas[idx].argsTexto += tc.function.arguments;
             }
           }
+
+          // Solo en modo nativo: en modo json el tool call viaja como texto
+          // JSON dentro de `content`, y un `inicio_iso` a medio construir
+          // contiene literalmente "09:00" — sería un falso corte seguro.
+          // La condición se reevalúa en cada chunk: si el modelo revela un
+          // tool call durante el margen de gracia, el corte se cancela.
+          if (
+            usaToolsNativas &&
+            toolCallsAcumuladas.filter(Boolean).length === 0 &&
+            respuestaParcialTieneDatoSinRespaldo(contenidoAcumulado, toolsEjecutadasEnTurno)
+          ) {
+            cortadoAnticipadamente = true;
+            break;
+          }
         }
+        // El `break` de arriba basta para liberar la conexión: el iterador
+        // del SDK aborta la petición en curso en su `finally` (openai
+        // streaming.js "If the user `break`s, abort the ongoing request").
+        // No hace falta un `stream.controller.abort()` explícito, y llamarlo
+        // dentro del `for await` sería contraproducente.
       } catch (error) {
         const status = (error as { status?: number })?.status;
         if (usaToolsNativas && (status === 400 || status === 422) && modoConfigurado() === "auto") {
@@ -208,6 +249,18 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
           throw error;
         }
       }
+
+      // Sin esta medida no hay forma de comparar la latencia antes/después
+      // de las tres capas; la ejecución de tools ya se mide aparte
+      // (`latencia_ms`), pero la llamada al LLM no se medía en ningún lado.
+      console.info("Llamada al LLM completada.", {
+        sessionId: entrada.sessionId,
+        iteracion,
+        modo,
+        duracionMs: Date.now() - inicioLlamadaLlm,
+        cortadoAnticipadamente,
+        toolsEjecutadasEnTurno,
+      });
 
       if (huboErrorTools400) {
         modoAutoCache = "json";
@@ -343,6 +396,7 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
             toolsEjecutadasEnTurno,
             textoDescartado: textoFinal,
             reintento: intentosGuardrailSalida,
+            cortadoAnticipadamente,
           },
         );
         // Antes de rendirse: se le da al modelo una oportunidad de
@@ -368,14 +422,20 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
         textoFinal = plantillasRechazo.falloDeTool();
       }
 
+      // `dividirEnTrozos` trocea texto ya completo de forma síncrona, así
+      // que esperar aquí a Supabase se sumaba íntegro al tiempo hasta el
+      // primer token visible. Se lanza ahora y se espera tras el `done`.
       if (conversacionId) {
-        await guardarMensaje(conversacionId, { rol: "assistant", contenido: textoFinal });
+        escriturasEnVuelo.push(
+          guardarMensaje(conversacionId, { rol: "assistant", contenido: textoFinal }),
+        );
       }
 
       for (const trozo of dividirEnTrozos(textoFinal)) {
         yield { tipo: "token", texto: trozo };
       }
       yield { tipo: "done", textoFinal };
+      await Promise.all(escriturasEnVuelo);
       return;
     }
 
@@ -386,13 +446,21 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
       toolsEjecutadasEnTurno,
     });
     const textoFinal = plantillasRechazo.falloDeTool();
-    if (conversacionId) await guardarMensaje(conversacionId, { rol: "assistant", contenido: textoFinal });
+    if (conversacionId) {
+      escriturasEnVuelo.push(
+        guardarMensaje(conversacionId, { rol: "assistant", contenido: textoFinal }),
+      );
+    }
     for (const trozo of dividirEnTrozos(textoFinal)) {
       yield { tipo: "token", texto: trozo };
     }
     yield { tipo: "done", textoFinal };
+    await Promise.all(escriturasEnVuelo);
   } catch (error) {
     console.error("Error en AgentRuntime:", error);
+    // Sin esto, un fallo del turno dejaría la traza a medio escribir como
+    // promesa huérfana que el runtime puede cancelar al cerrar la respuesta.
+    await Promise.all(escriturasEnVuelo).catch(() => {});
     yield { tipo: "error", mensaje: "El asistente no está disponible en este momento. Intente de nuevo en unos minutos." };
   }
 }

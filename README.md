@@ -224,3 +224,12 @@ La clave de Google conviene subirla como **Secret File** en `/etc/secrets/google
 | §13 | Dirección de arte, movimiento y accesibilidad |
 | §16 | Los 45 criterios de aceptación y la estrategia de pruebas |
 | §18 | Supuestos asumidos y preguntas abiertas |
+
+Informes de campañas de prueba ya ejecutadas:
+
+| Documento | Contenido |
+|---|---|
+| [`PLAN-DE-PRUEBAS.md`](PLAN-DE-PRUEBAS.md) | Plan maestro, seis capas de prueba |
+| [`INFORME-E2E-NAVEGACION-REAL.md`](INFORME-E2E-NAVEGACION-REAL.md) | Navegación real de las 10 superficies (defectos DEF-01 a DEF-24) |
+| [`PLAN-DE-PRUEBAS-LATENCIA-CHAT.md`](PLAN-DE-PRUEBAS-LATENCIA-CHAT.md) | Campaña específica de latencia y reintentos del agente |
+| [`INFORME-LATENCIA-CHAT.md`](INFORME-LATENCIA-CHAT.md) | Resultados medidos: de dónde vienen los segundos y qué es accionable (DEF-25 a DEF-34) |

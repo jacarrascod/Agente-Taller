@@ -3,6 +3,7 @@ import {
   detectarMarcaAjena,
   evaluarGuardrailEntrada,
   respuestaEsEcoDelTurnoAnterior,
+  respuestaParcialTieneDatoSinRespaldo,
   respuestaTieneDatoSinRespaldo,
 } from "@/server/agent/guardrails";
 
@@ -156,6 +157,94 @@ describe("respuestaTieneDatoSinRespaldo (capa 3)", () => {
 
   it("DEF-03: 'soles' en singular (astro) no dispara falso positivo — solo se vigila el plural", () => {
     expect(respuestaTieneDatoSinRespaldo("El taller tiene buena ventilación y luz natural.", [])).toBe(false);
+  });
+});
+
+// Versión incremental de la capa 3: permite cortar el stream del LLM apenas
+// la violación es inequívoca, en vez de esperar el párrafo completo que
+// igual se va a descartar. Mismo criterio de respaldo; lo único que cambia
+// es CUÁNDO se evalúa, así que ante la duda debe devolver `false`.
+describe("respuestaParcialTieneDatoSinRespaldo (capa 3, corte anticipado)", () => {
+  // Relleno neutro: sin horas, sin precios, solo para superar el margen.
+  const RELLENO = " y quedo atento a su respuesta por favor gracias.";
+
+  it("aún no decide cuando la hora recién apareció (podría ser el rango del taller)", () => {
+    expect(respuestaParcialTieneDatoSinRespaldo("Tengo libre a las 09:00", [])).toBe(false);
+  });
+
+  it("corta cuando la hora ya no puede completarse como rango del taller", () => {
+    expect(
+      respuestaParcialTieneDatoSinRespaldo(
+        "El miércoles 26 de agosto tenemos libres a las 09:00, 10:00, 11:00, 12:00, 13:00 y 14:00.",
+        [],
+      ),
+    ).toBe(true);
+  });
+
+  it("NO corta el rango fijo del taller aunque llegue texto de sobra (exención DEF-02 intacta)", () => {
+    expect(
+      respuestaParcialTieneDatoSinRespaldo(
+        "El taller atiende de 09:00 a 17:00, de lunes a viernes, sin cerrar al mediodía.",
+        [],
+      ),
+    ).toBe(false);
+  });
+
+  it("no corta una hora cuando ya se consultó la disponibilidad en el turno", () => {
+    expect(
+      respuestaParcialTieneDatoSinRespaldo(
+        "El miércoles 26 de agosto tenemos libres a las 09:00, 10:00, 11:00, 12:00, 13:00 y 14:00.",
+        ["consultar_disponibilidad_agenda"],
+      ),
+    ).toBe(false);
+  });
+
+  it("corta un precio sin tool de respaldo una vez superado el margen", () => {
+    expect(
+      respuestaParcialTieneDatoSinRespaldo(
+        "El filtro de aceite original cuesta S/ 38.00 e incluye IGV, y lo tenemos disponible.",
+        [],
+      ),
+    ).toBe(true);
+  });
+
+  it("no corta un precio cuando se ejecutó buscar_repuestos en el turno", () => {
+    expect(
+      respuestaParcialTieneDatoSinRespaldo(
+        "El filtro de aceite original cuesta S/ 38.00 e incluye IGV, y lo tenemos disponible.",
+        ["buscar_repuestos"],
+      ),
+    ).toBe(false);
+  });
+
+  it("no corta un texto sin precio ni hora por largo que sea", () => {
+    expect(
+      respuestaParcialTieneDatoSinRespaldo(`Claro, cuénteme más sobre su Toyota.${RELLENO}`, []),
+    ).toBe(false);
+  });
+
+  it("no confunde un número de parte con una hora", () => {
+    expect(
+      respuestaParcialTieneDatoSinRespaldo(`El número de parte es 90915-YZZD3.${RELLENO}`, []),
+    ).toBe(false);
+  });
+
+  // La garantía que importa: la versión incremental NUNCA es más permisiva
+  // que la definitiva. Si el texto completo se descarta, el corte anticipado
+  // sobre ese mismo texto (con margen suficiente) también debe dispararse.
+  describe("no relaja el criterio de la versión de texto completo", () => {
+    const CASOS_QUE_DEBEN_DESCARTARSE = [
+      "El filtro cuesta S/ 38.00.",
+      "Tenemos 11:00 disponible.",
+      "Tengo libre a las 09:00 si le acomoda.",
+      "Le puedo agendar a las 16:00.",
+      "Le cuesta doscientos diez soles.",
+    ];
+
+    it.each(CASOS_QUE_DEBEN_DESCARTARSE)("%s", (texto) => {
+      expect(respuestaTieneDatoSinRespaldo(texto, [])).toBe(true);
+      expect(respuestaParcialTieneDatoSinRespaldo(`${texto}${RELLENO}`, [])).toBe(true);
+    });
   });
 });
 

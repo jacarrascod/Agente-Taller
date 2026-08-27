@@ -1257,11 +1257,15 @@ R1. SOLO TOYOTA. Si el cliente pregunta por cualquier otra marca (Nissan,
 R2. SOLO EL RUBRO. Si la pregunta no tiene relación con mantenimiento
     automotriz, repuestos Toyota o el taller (política, recetas, tareas
     escolares, programación, etc.), declina con cortesía y reconduce.
-R3. NUNCA INVENTES DATOS. Precios, stock, disponibilidad de horarios y
-    características de mantenimientos SIEMPRE provienen de una
-    herramienta. Si la herramienta no devuelve el dato, dilo con
-    honestidad y ofrece contactar al taller. Está prohibido estimar,
-    aproximar o "recordar" un precio.
+R3. NUNCA INVENTES NI REPITAS DATOS DE MEMORIA. Precios, stock,
+    disponibilidad de horarios y características de mantenimientos
+    SIEMPRE provienen de una herramienta, EN ESTE MISMO TURNO. Si ya le
+    diste un precio o un horario al cliente en un mensaje anterior y
+    necesitas volver a mencionarlo, vuelve a llamar la herramienta antes
+    de escribirlo: los precios cambian y los horarios se ocupan. Está
+    prohibido estimar, aproximar, deducir o "recordar" un precio o una
+    hora libre. Si la herramienta no devuelve el dato, dilo con
+    honestidad y ofrece contactar al taller.
 R4. PREGUNTA ANTES DE ASUMIR. Si no sabes a qué repuesto se refiere el
     cliente, o falta el modelo o el año del vehículo, pregunta. Máximo
     2 preguntas por turno. Nunca hagas una lista de 5 preguntas.
@@ -1528,12 +1532,36 @@ Errores: `CITA_NO_CANCELABLE` (no existe, el correo no coincide, o ya estaba can
      - ejecuta las tools (en paralelo si son independientes)
      - persiste en `mensajes` (rol='tool')
      - devuelve los resultados al LLM
-6. Streamea la respuesta final al cliente por SSE
-7. Guardrail de salida: si el texto contiene un precio/hora sin tool previa
-   en el turno → se loguea el incidente, se reinyecta como corrección al
-   LLM (system message) y se le da UN reintento en el mismo turno; si
-   vuelve a fallar, se reemplaza por la plantilla de "fallo de tool"
+6. Guardrail de salida ANTES de emitir nada: el texto del modelo se acumula
+   completo (no se reenvían los deltas crudos) para poder descartarlo. Si
+   contiene un precio/hora sin tool de respaldo en el turno → se loguea el
+   incidente, se reinyecta como corrección al LLM (system message) y se le
+   da UN reintento en el mismo turno; si vuelve a fallar, se reemplaza por
+   la plantilla de "fallo de tool"
+7. Solo una vez validado, el texto se trocea y se envía al cliente por SSE
 ```
+
+> **Por qué el guardrail va antes del envío (paso 6 antes del 7):** lo ya
+> transmitido token a token no se puede deshacer. El "streaming" que ve el
+> cliente es, por tanto, una simulación: el texto se trocea después de
+> validarse. Es el precio de que O4 sea verificable, y la razón de que el
+> primer token tarde tanto como la respuesta entera.
+
+**Corte anticipado del stream.** Esperar el párrafo completo para descartarlo
+cuesta una generación entera desperdiciada. Por eso, en modo `native`, el
+guardrail se evalúa **de forma incremental sobre el texto parcial** en cada
+chunk: apenas la violación es inequívoca se corta la generación y se pasa
+directo al reintento. Usa el mismo criterio de respaldo que la validación
+final —no cambia *qué* se considera respaldado, solo *cuándo* se evalúa— y
+ante la duda no corta. Solo aplica a `native`: en modo `json` el tool call
+viaja como texto dentro de `content`, y un `inicio_iso` a medio construir
+contiene literalmente `09:00`, lo que provocaría un corte falso.
+
+**Persistencia fuera del camino crítico.** Las escrituras de traza en
+`mensajes` (rol `user` y `assistant`) se lanzan sin `await` y se esperan al
+final del turno, para que el round-trip a Supabase se solape con la llamada
+al LLM en vez de sumarse a ella. La traza sigue siendo obligatoria: nunca se
+deja una promesa huérfana.
 
 **Compatibilidad `AGENT_TOOL_MODE`** — el soporte de *function calling* nativo varía entre modelos de NVIDIA NIM. Por eso el runtime tiene dos modos:
 
@@ -1561,7 +1589,21 @@ const MARCAS_NO_TOYOTA = [
 
 **Capa 2 — el system prompt (R1, R2).**
 
-**Capa 3 — validación de salida:** si la respuesta final contiene un patrón de precio (`S/ \d`) o de horario ofrecido y en ese turno no se ejecutó `buscar_repuestos`/`consultar_disponibilidad_repuesto`/`consultar_disponibilidad_agenda`, se registra el incidente y **se le da al modelo un reintento**: se reinyecta la respuesta descartada junto con un mensaje de sistema explicando qué dato mencionó sin respaldo y qué tool debe llamar (típicamente el modelo repitió de memoria un horario genérico —p. ej. la hora de apertura— en vez de consultar la tool). Si el reintento también falla el guardrail, recién ahí se descarta y se envía la plantilla de fallo. Es la red que hace verificable el objetivo O4.
+**Capa 3 — validación de salida:** si la respuesta final cita un precio o una hora de cita y en ese turno **no** se ejecutó una tool que lo respalde, se registra el incidente y **se le da al modelo un reintento**: se reinyecta la respuesta descartada junto con un mensaje de sistema explicando qué dato mencionó sin respaldo y qué tool debe llamar. Si el reintento también falla, recién ahí se descarta y se envía la plantilla de fallo. Es la red que hace verificable el objetivo O4.
+
+Qué cuenta como respaldo, por tipo de dato:
+
+| Patrón detectado | Tools que lo justifican |
+|---|---|
+| Precio — `S/ \d` **o** la palabra «soles» (DEF-03: «doscientos diez soles» esquivaba el filtro del símbolo) | `buscar_repuestos`, `consultar_disponibilidad_repuesto`, `listar_mantenimientos`, `agendar_cita` |
+| Hora de cita — `HH:MM` | `consultar_disponibilidad_agenda`, `agendar_cita`, `consultar_citas`, `cancelar_cita` |
+
+Dos precisiones que costaron un defecto cada una:
+
+- **El rango fijo de apertura–cierre del taller está exento** (DEF-02). Decir «atendemos de 09:00 a 17:00» es un dato del prompt (§3.1), no una hora ofrecida, y no exige tool. Pero una hora suelta —«tengo libre a las 09:00»— sí la exige, aunque coincida con la hora de apertura.
+- **El respaldo se exige del turno actual, no de la conversación entera** (DEF-03). Antes valía cualquier tool ya ejecutada en el hilo, lo que permitía que una consulta de un repuesto respaldara el precio de otro distinto minutos después.
+
+El reintento está limitado a uno por turno, y el corte anticipado descrito en §9.5 reduce lo que se desperdicia cuando dispara.
 
 ### 9.7 Diálogos de referencia
 
@@ -2086,6 +2128,12 @@ El microcopy es material de diseño, no relleno. Reglas:
 | Alucinación de precios | Guardrail de salida (§9.6, capa 3) |
 
 **Observabilidad:** cada llamada a tool se persiste en `mensajes` con `tool_nombre`, `tool_payload`, `tool_resultado` y `latencia_ms`. Con eso se puede auditar toda conversación y demostrar en la presentación qué hizo el agente en cada turno.
+
+Además, el runtime emite por consola una línea por **cada llamada al LLM** (`sessionId`, `iteracion`, `modo`, `duracionMs`, `cortadoAnticipadamente`, `toolsEjecutadasEnTurno`) y otra por cada activación del guardrail de salida (con el texto descartado y el número de reintento). Juntas responden la pregunta que `latencia_ms` por sí sola no puede: **cuántas idas y vueltas al modelo costó un solo mensaje del cliente, y cuántas de ellas se desperdiciaron**.
+
+> ⚠️ Los dos flujos van a descriptores distintos: `console.info` (tiempos) a **stdout**, `console.warn`/`console.error` (guardrail, fallos) a **stderr**. Al capturar logs a fichero hay que redirigir ambos; mirar solo uno da una lectura falsa —revisar solo stdout sugiere que el guardrail nunca dispara.
+
+La campaña de medición hecha con esta instrumentación está en `PLAN-DE-PRUEBAS-LATENCIA-CHAT.md` y sus resultados en `INFORME-LATENCIA-CHAT.md`. Conclusión operativa: **el 90-95 % del tiempo de un turno es latencia del proveedor LLM**, así que la única palanca real desde este repositorio es reducir el *número* de llamadas, no acelerarlas.
 
 ### 15.1 Despliegue en Render
 
