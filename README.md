@@ -33,7 +33,7 @@ Además, la web tiene catálogo con fichas técnicas, los 3 tipos de mantenimien
 |---|---|
 | Framework | Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS 4 |
 | Base de datos | Supabase (PostgreSQL) con RLS y búsqueda de texto completo en español |
-| LLM | NVIDIA NIM (`meta/muse-glimmer-30b`) vía SDK de OpenAI apuntado a su `baseURL` |
+| LLM | Proveedor intercambiable por `AGENT_LLM_PROVIDER` — NVIDIA NIM, Groq u OpenAI, los tres vía el SDK de `openai` (ver [«Elegir proveedor del LLM»](#2-elegir-proveedor-del-llm)) |
 | Agenda | Google Calendar API v3 con cuenta de servicio |
 | Correo | Brevo (API HTTP, 300 correos/día en plan gratuito) |
 | Tipografía | Archivo · IBM Plex Sans · IBM Plex Mono |
@@ -46,7 +46,7 @@ Además, la web tiene catálogo con fichas técnicas, los 3 tipos de mantenimien
 
 ### Requisitos
 
-Node.js 20 o superior, y cuentas en Supabase, Google, NVIDIA NIM y Brevo.
+Node.js 20 o superior, y cuentas en Supabase, Google, Brevo y **uno** de los tres proveedores de LLM (NVIDIA NIM, Groq u OpenAI — ver abajo).
 
 ### 1. Instalar
 
@@ -55,7 +55,24 @@ npm install
 cp .env.example .env.local
 ```
 
-### 2. Supabase
+### 2. Elegir proveedor del LLM
+
+`clienteLLM()` (`src/server/agent/llm.ts`) soporta tres proveedores intercambiables, todos vía el SDK `openai` porque los tres exponen (o son) una API compatible. Se elige con `AGENT_LLM_PROVIDER` en `.env.local`; solo hace falta configurar el que se vaya a usar.
+
+| `AGENT_LLM_PROVIDER` | Variable de API key | Modelo por defecto | Notas |
+|---|---|---|---|
+| `nvidia` (default) | `NVIDIA_API_KEY` | `meta/muse-glimmer-30b` | ~18-22 s/llamada medido en `INFORME-LATENCIA-CHAT.md`. Sin cupos ajustados conocidos |
+| `groq` | `GROQ_API_KEY` | `openai/gpt-oss-120b` | 3-4x más rápido, pero el free tier tiene 8,000 tokens/min y **200,000 tokens/día** — se agota con facilidad en una sola sesión de pruebas intensivas |
+| `openai` | `OPENAI_TOKEN` | `gpt-5-mini` | De pago, sin cupos gratuitos ajustados; un agendamiento completo cuesta ~$0.02. Los modelos `gpt-5*`/`o1`/`o3`/`o4` no aceptan `temperature` personalizado — el runtime lo detecta solo (`SOPORTA_TEMPERATURA_PERSONALIZADA`) |
+
+```bash
+AGENT_LLM_PROVIDER=groq              # nvidia | groq | openai
+AGENT_LLM_MAX_RETRIES=2              # reintentos ante Connection error / 429 / 5xx transitorios
+```
+
+Cambiar de proveedor no requiere tocar código, solo la variable — y en Render, actualizarla en el dashboard de **Environment** (no lee `.env.local`).
+
+### 3. Supabase
 
 Crear un proyecto y ejecutar en el SQL Editor, en este orden:
 
@@ -68,7 +85,7 @@ supabase/02_seed.sql       # 24 repuestos, 10 modelos, 3 mantenimientos, 12 FAQ,
 
 Copiar a `.env.local` la URL del proyecto, la `anon key` y la `service_role key`.
 
-### 3. Google Calendar
+### 4. Google Calendar
 
 1. Crear un proyecto en Google Cloud y habilitar la **Google Calendar API**.
 2. Crear una **cuenta de servicio** y descargar su clave JSON.
@@ -77,13 +94,13 @@ Copiar a `.env.local` la URL del proyecto, la `anon key` y la `service_role key`
 
 Los eventos se crean **sin invitados**: una cuenta de servicio sin delegación de dominio no puede agregarlos, y el cliente se entera de su cita por el correo que envía la aplicación.
 
-### 4. Brevo
+### 5. Brevo
 
 1. Registrarse en [brevo.com](https://www.brevo.com) (plan gratuito, sin tarjeta).
 2. **Settings → Senders** → registrar y verificar el correo remitente. Es **la misma cuenta de Google dueña del calendario**, para que las respuestas de los clientes lleguen al buzón donde también están las citas.
 3. **SMTP & API → API Keys** → generar una clave y copiarla a `.env.local`.
 
-### 5. Levantar
+### 6. Levantar
 
 ```bash
 npm run dev     # http://localhost:3000
@@ -183,8 +200,8 @@ npm run eval -- --caso CA-13     # un solo caso, útil al iterar el prompt
 Estas credenciales solo se leen dentro de `src/server/**`, y `npm run check:server-only` falla si aparecen fuera:
 
 ```
-SUPABASE_SERVICE_ROLE_KEY    NVIDIA_API_KEY
-GOOGLE_PRIVATE_KEY           BREVO_API_KEY
+SUPABASE_SERVICE_ROLE_KEY    NVIDIA_API_KEY    GROQ_API_KEY
+GOOGLE_PRIVATE_KEY           BREVO_API_KEY     OPENAI_TOKEN
 ```
 
 Las tablas de citas, pedidos, correos y conversaciones **no tienen políticas RLS**: la clave anónima no puede leerlas ni escribirlas, y todo acceso pasa por el servidor con su propio rate limit.
@@ -207,6 +224,8 @@ Las tablas de citas, pedidos, correos y conversaciones **no tienen políticas RL
 La clave de Google conviene subirla como **Secret File** en `/etc/secrets/google-service-account.json` y apuntar `GOOGLE_SERVICE_ACCOUNT_FILE` a esa ruta, en vez de pelear con los saltos de línea en el dashboard. No fijar `PORT` a mano: Render lo inyecta.
 
 > ⚠️ **El plan gratuito de Render duerme el servicio tras unos 15 minutos sin tráfico**, y la siguiente visita tarda hasta un minuto en levantarlo. Si hay una demostración en vivo, abrir la URL unos minutos antes.
+
+> ⚠️ **Render no lee `.env.local`.** `AGENT_LLM_PROVIDER` y la API key del proveedor elegido (`NVIDIA_API_KEY` / `GROQ_API_KEY` / `OPENAI_TOKEN`) hay que cargarlas a mano en el dashboard → **Environment**. Si el proveedor activo es `groq` y se agota su cupo diario (200,000 tokens), la forma más rápida de recuperar la demo es cambiar esa variable a `nvidia` u `openai` ahí mismo — guardar dispara un redeploy automático.
 
 ---
 

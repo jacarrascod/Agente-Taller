@@ -12,7 +12,14 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletionMessageToolCall,
 } from "openai/resources/chat/completions";
-import { clienteLLM, MAX_ITERACIONES_TOOLS, MODELO_LLM, REINTENTOS_LLM, TEMPERATURA_LLM } from "./llm";
+import {
+  clienteLLM,
+  MAX_ITERACIONES_TOOLS,
+  MODELO_LLM,
+  REINTENTOS_LLM,
+  SOPORTA_TEMPERATURA_PERSONALIZADA,
+  TEMPERATURA_LLM,
+} from "./llm";
 import { NOMBRES_TOOLS, TOOLS_JSON_SCHEMA, ejecutarTool } from "./tools";
 import {
   evaluarGuardrailEntrada,
@@ -237,8 +244,11 @@ export async function* ejecutarTurno(entrada: EntradaTurno): AsyncGenerator<Even
           const stream = await cliente.chat.completions.create({
             model: MODELO_LLM,
             messages: mensajes,
-            temperature: TEMPERATURA_LLM,
             stream: true,
+            // Los modelos de razonamiento (gpt-5*, o1/o3/o4) rechazan
+            // `temperature` con 400 "Only the default (1) value is
+            // supported" — ver SOPORTA_TEMPERATURA_PERSONALIZADA en llm.ts.
+            ...(SOPORTA_TEMPERATURA_PERSONALIZADA ? { temperature: TEMPERATURA_LLM } : {}),
             ...(usaToolsNativas ? { tools: TOOLS_JSON_SCHEMA, tool_choice: "auto" as const } : {}),
           });
 

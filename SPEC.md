@@ -65,7 +65,7 @@ El agente **no adivina**: todo dato de precio, stock o disponibilidad de agenda 
 |---|---|---|
 | Framework | **Next.js 15 (App Router) + TypeScript + Tailwind CSS 4** | Front y backend en un repo; las credenciales viven en Route Handlers del servidor y nunca llegan al navegador |
 | Base de datos | **Supabase (PostgreSQL)** | Requisito del enunciado; RLS + SQL editor + storage disponibles |
-| LLM | **NVIDIA NIM** — `https://integrate.api.nvidia.com/v1`, modelo `meta/muse-glimmer-30b` | Endpoint **compatible con OpenAI** → se usa el SDK `openai` con `baseURL` sobreescrita |
+| LLM | **Proveedor intercambiable** vía `AGENT_LLM_PROVIDER` — NVIDIA NIM (`meta/muse-glimmer-30b`, default), Groq (`openai/gpt-oss-120b`) u OpenAI (`gpt-5-mini`) | Los tres exponen (o son) una API **compatible con OpenAI** → un solo cliente (`llm.ts`) con `apiKey`/`baseURL`/`modelo` resueltos por proveedor. Decisión original: NVIDIA. Se agregó Groq y OpenAI tras medir que NVIDIA promedia ~18-22s/llamada (`INFORME-LATENCIA-CHAT.md`); Groq es 3-4x más rápido pero con cupos de free tier ajustados (8,000 tokens/min, 200,000/día), y OpenAI (`gpt-5-mini`) es la opción de pago sin esos cupos, barata (~$0.02 por agendamiento completo). Ver §9.5.1 |
 | Agenda | **Google Calendar API v3 con Service Account** | Sin login interactivo; el calendario del taller se comparte con el email de la cuenta de servicio |
 | Imágenes | **Fotos reales genéricas** (sin marca Toyota), de fuentes de licencia abierta (Wikimedia Commons / Openverse), descargadas a `/public/` en tiempo de autoría | Sin hotlinking: funciona offline en runtime igual que los placeholders. Atribución en `public/CREDITOS-IMAGENES.md`. Los ítems sin foto confiable conservan el placeholder SVG de respaldo |
 | Moneda / zona | **PEN (S/), `America/Lima`, IGV 18 %** | Mercado peruano |
@@ -118,10 +118,12 @@ Estos valores viven en un solo módulo, `src/server/lib/taller.ts`, y se consume
 │   POST /api/checkout       (mismos servicios que usa el agente)   │
 └────┬────────────────┬──────────────────┬─────────────────┬────────┘
      │ supabase-js    │ googleapis       │ openai SDK      │ fetch
-     │ (service_role) │ (JWT svc. acct.) │ (baseURL NIM)   │ (API v3)
+     │ (service_role) │ (JWT svc. acct.) │ (baseURL según  │ (API v3)
+     │                │                  │  AGENT_LLM_     │
+     │                │                  │  PROVIDER)      │
 ┌────▼─────────┐ ┌────▼───────────┐ ┌────▼──────────┐ ┌────▼────────┐
-│   Supabase   │ │Google Calendar │ │  NVIDIA NIM   │ │    Brevo    │
-│  PostgreSQL  │ │  (taller@…)    │ │muse-glimmer-30│ │ email 300/d │
+│   Supabase   │ │Google Calendar │ │ NVIDIA | Groq │ │    Brevo    │
+│  PostgreSQL  │ │  (taller@…)    │ │   | OpenAI    │ │ email 300/d │
 └──────────────┘ └────────────────┘ └───────────────┘ └─────────────┘
 ```
 
@@ -171,7 +173,7 @@ Agente-taller/
    │  │  ├─ prompt.ts         # system prompt y plantillas de rechazo
    │  │  ├─ tools.ts          # definiciones JSON Schema + dispatcher
    │  │  ├─ guardrails.ts     # detector de marca / off-topic
-   │  │  └─ llm.ts            # cliente OpenAI-compatible → NVIDIA NIM
+   │  │  └─ llm.ts            # cliente OpenAI-compatible → NVIDIA | Groq | OpenAI (AGENT_LLM_PROVIDER)
    │  ├─ services/
    │  │  ├─ catalogo.ts · inventario.ts · agenda.ts
    │  │  ├─ citas.ts          # consulta por email, cancelación
@@ -197,13 +199,32 @@ Agente-taller/
 `.env.local` nunca se commitea. `.env.example` sí se versiona, con los valores en blanco.
 
 ```bash
-# ── LLM (NVIDIA NIM, compatible OpenAI) ─────────────────────────────
+# ── LLM (compatible OpenAI) — ver §9.5.1 ────────────────────────────
+AGENT_LLM_PROVIDER=nvidia            # nvidia | groq | openai — elige el proveedor que usa clienteLLM()
+
+# NVIDIA NIM (usado si AGENT_LLM_PROVIDER=nvidia o se deja vacío)
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
 NVIDIA_MODEL=meta/muse-glimmer-30b
 NVIDIA_API_KEY=                      # nvapi-...
+
+# Groq (usado si AGENT_LLM_PROVIDER=groq) — 3-4x más rápido que NVIDIA NIM,
+# pero el free tier tiene 8,000 tokens/min y 200,000 tokens/día para
+# gpt-oss-120b: se agota con una sola sesión de pruebas intensivas
+# (INFORME-LATENCIA-CHAT.md)
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_API_KEY=                        # gsk_...
+
+# OpenAI (usado si AGENT_LLM_PROVIDER=openai) — de pago, sin cupos gratuitos
+# ajustados. gpt-5-mini no acepta `temperature` personalizado (§9.5.1)
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-5-mini
+OPENAI_TOKEN=                        # sk-...
+
 AGENT_TOOL_MODE=auto                 # auto | native | json   (ver §9.5)
 AGENT_MAX_TOOL_ITERATIONS=5
 AGENT_TEMPERATURE=0.3
+AGENT_LLM_MAX_RETRIES=2              # reintentos ante Connection error / 429 / 5xx transitorios del LLM
 
 # ── Supabase ────────────────────────────────────────────────────────
 NEXT_PUBLIC_SUPABASE_URL=
@@ -252,7 +273,7 @@ RATE_LIMIT_CITAS_POR_MINUTO=5
 RATE_LIMIT_AGENDAR_POR_HORA=3
 ```
 
-**Regla de oro:** `SUPABASE_SERVICE_ROLE_KEY`, `NVIDIA_API_KEY`, `GOOGLE_PRIVATE_KEY` y `BREVO_API_KEY` solo se leen dentro de `src/server/**`. Un check de CI debe fallar si aparecen fuera de esa carpeta.
+**Regla de oro:** `SUPABASE_SERVICE_ROLE_KEY`, `NVIDIA_API_KEY`, `GROQ_API_KEY`, `OPENAI_TOKEN`, `GOOGLE_PRIVATE_KEY` y `BREVO_API_KEY` solo se leen dentro de `src/server/**`. Un check de CI debe fallar si aparecen fuera de esa carpeta.
 
 > **Nota sobre `EMAIL_REMITENTE`:** Brevo exige un remitente verificado. Con una cuenta Gmail gratuita se verifica la propia dirección (un correo de confirmación de Brevo). Los correos saldrán como *Toyota Taller Perú &lt;tu-correo@gmail.com&gt;*, lo cual es correcto para la demo. Un remitente tipo `citas@toyotatallerperu.pe` requeriría comprar el dominio y configurar SPF/DKIM.
 
@@ -1571,6 +1592,59 @@ deja una promesa huérfana.
 
 Esta capa es obligatoria: sin ella, un modelo sin tool-calling nativo produciría respuestas inventadas, violando O4.
 
+### 9.5.1 Selección de proveedor LLM y reintentos (`src/server/agent/llm.ts`)
+
+La decisión original (§3) fue NVIDIA NIM en exclusiva. La campaña de
+`INFORME-LATENCIA-CHAT.md` mostró que **85-95 % del tiempo de un turno es el
+proveedor LLM**, así que se agregó `AGENT_LLM_PROVIDER` (`nvidia` | `groq` |
+`openai`) para poder cambiar de proveedor sin tocar código — los tres
+exponen (o son) una API compatible con el SDK `openai`, así que
+`clienteLLM()` solo resuelve `apiKey`/`baseURL`/`modelo` según la variable
+(tabla completa en §5).
+
+**Groq** (`openai/gpt-oss-120b`) resultó 3-4x más rápido que NVIDIA NIM en
+las pruebas, pero con dos problemas medidos en producción:
+
+1. **~15-20 % de `OpenAI.APIConnectionError` transitorio** bajo carga. Se
+   descartó como causa el cold-start de la conexión y el uso de streaming
+   (ambos dieron tasas de fallo equivalentes); la explicación más sólida es
+   el presupuesto de tokens/min de la cuenta gratuita (8,000 TPM), muy
+   ajustado frente a los ~2,500 tokens que pesa el system prompt + las 9
+   tools en cada llamada.
+2. **Un tope de 200,000 tokens/día** (TPD) implementado como relleno
+   continuo (~2.3 tokens/seg, no un reseteo a medianoche) — se agota con
+   una sola sesión de pruebas intensivas y tarda horas en recuperarse. Un
+   agendamiento completo (~20,000 tokens) puede no caber si el cupo ya está
+   bajo.
+
+Por eso el reintento tiene **dos capas**, ninguna reemplaza a la otra:
+
+- `llm.ts`: `maxRetries` del cliente OpenAI (cubre fallos de conexión y
+  429/5xx en la conexión inicial; el SDK ya trae backoff y respeta
+  `Retry-After`).
+- `runtime.ts`: reintento explícito adicional alrededor de la llamada +
+  consumo del stream, porque el reintento del SDK no cubre un stream que se
+  corta a medio camino (justo lo medido con Groq). Solo reintenta
+  `APIConnectionError` / `RateLimitError` / `InternalServerError` — nunca
+  errores de negocio — y respeta el `retry-after` del 429 cuando es corto.
+  Configurable con `AGENT_LLM_MAX_RETRIES` (default 2).
+
+> ⚠️ **El `retry-after` de un límite por TPM se mide en segundos; el de un
+> límite por TPD puede ser de varios minutos.** Reintentar contra un TPD
+> agotado con un backoff corto no sirve — el cupo simplemente no está—, así
+> que antes de subir `AGENT_LLM_MAX_RETRIES` para "arreglar" un 429 hay que
+> mirar qué tipo de límite fue.
+
+**OpenAI** (`gpt-5-mini`, elegido por barato — $0.25/$2 por MTok — y
+confiable en tool-calling) es la tercera opción, de pago y sin los cupos
+ajustados de Groq. Tiene una particularidad propia: los modelos de
+razonamiento (`gpt-5*`, `o1`/`o3`/`o4`) **rechazan `temperature`
+personalizado** con un 400 ("Only the default (1) value is supported").
+`llm.ts` lo detecta por el nombre del modelo resuelto
+(`SOPORTA_TEMPERATURA_PERSONALIZADA`), no por el proveedor, así que si
+`OPENAI_MODEL` cambia a un modelo que sí lo soporta (p. ej. `gpt-4.1-mini`),
+`temperature` se vuelve a enviar solo.
+
 ### 9.6 Guardrails (`src/server/agent/guardrails.ts`)
 
 **Capa 1 — determinista, antes del LLM:**
@@ -2133,7 +2207,7 @@ Además, el runtime emite por consola una línea por **cada llamada al LLM** (`s
 
 > ⚠️ Los dos flujos van a descriptores distintos: `console.info` (tiempos) a **stdout**, `console.warn`/`console.error` (guardrail, fallos) a **stderr**. Al capturar logs a fichero hay que redirigir ambos; mirar solo uno da una lectura falsa —revisar solo stdout sugiere que el guardrail nunca dispara.
 
-La campaña de medición hecha con esta instrumentación está en `PLAN-DE-PRUEBAS-LATENCIA-CHAT.md` y sus resultados en `INFORME-LATENCIA-CHAT.md`. Conclusión operativa: **el 90-95 % del tiempo de un turno es latencia del proveedor LLM**, así que la única palanca real desde este repositorio es reducir el *número* de llamadas, no acelerarlas.
+La campaña de medición hecha con esta instrumentación está en `PLAN-DE-PRUEBAS-LATENCIA-CHAT.md` y sus resultados en `INFORME-LATENCIA-CHAT.md`. Conclusión operativa: **el 90-95 % del tiempo de un turno es latencia del proveedor LLM**, así que la única palanca real desde este repositorio es reducir el *número* de llamadas, no acelerarlas. Esa conclusión motivó agregar `AGENT_LLM_PROVIDER` (§9.5.1) para poder cambiar de proveedor sin tocar código: Groq resultó 3-4x más rápido en las pruebas, aunque con cupos de free tier propios (8,000 tokens/min, 200,000/día) que hay que vigilar.
 
 ### 15.1 Despliegue en Render
 
@@ -2201,7 +2275,7 @@ La campaña de medición hecha con esta instrumentación está en `PLAN-DE-PRUEB
 ### Transversales
 - **CA-29** Lighthouse ≥ 90 en Performance y ≥ 95 en Accessibility en `/` y `/repuestos`.
 - **CA-30** El chat funciona en móvil (360 px de ancho) sin scroll horizontal.
-- **CA-31** Con `NVIDIA_API_KEY` inválida, la web sigue navegable y el chat muestra un error digno.
+- **CA-31** Con la API key del proveedor LLM activo inválida (`NVIDIA_API_KEY`, `GROQ_API_KEY` u `OPENAI_TOKEN`, según `AGENT_LLM_PROVIDER`), la web sigue navegable y el chat muestra un error digno.
 - **CA-32** `AGENT_TOOL_MODE=json` supera CA-01, CA-08 y CA-13 igual que `native`.
 - **CA-33** Con `BREVO_API_KEY` inválida, la cita **se crea igual**, la respuesta trae `email_enviado: false` y el agente dicta fecha, hora y dirección en el chat.
 - **CA-34** Reintentar dos veces el mismo agendamiento no envía dos correos (idempotencia por `clave_idem`).
@@ -2302,7 +2376,7 @@ Reglas del harness:
 
 **Por confirmar cuando lleguen las credenciales:**
 
-- **P1** — ¿`meta/muse-glimmer-30b` soporta *function calling* nativo en NIM? Si no, el runtime usará `AGENT_TOOL_MODE=json` (§9.5). **Esto no bloquea nada**, pero conviene medirlo temprano en la Fase 3 porque afecta la calidad de la desambiguación.
+- **P1** — ~~¿`meta/muse-glimmer-30b` soporta *function calling* nativo en NIM?~~ **Resuelto:** sí — confirmado en producción con `modo: 'native'` en el log de las tres opciones de `AGENT_LLM_PROVIDER` (NVIDIA, Groq y OpenAI); `AGENT_TOOL_MODE=json` sigue disponible como respaldo si algún modelo futuro no lo soportara (§9.5).
 - **P2** — ~~¿Workspace o Gmail personal?~~ **Resuelto:** cuenta Gmail gratuita. El evento se crea solo en el calendario del taller, sin invitados, y el cliente se entera por el correo de Brevo (§10.1).
 - **P4** — ~~¿Qué Gmail se verifica como remitente en Brevo?~~ **Resuelto:** el mismo correo dueño del Google Calendar del taller. Una sola cuenta concentra calendario, remitente y `Reply-To`, de modo que las respuestas de los clientes caen en el buzón donde también están las citas. `GOOGLE_CALENDAR_ID`, `EMAIL_REMITENTE` y `EMAIL_RESPONDER_A` apuntan a la misma dirección.
 - **P3** — ~~¿Dónde se despliega?~~ **Resuelto:** Render, Web Service de Node (§15.1). SSE sin restricciones; el punto a vigilar es el arranque en frío del plan gratuito el día de la presentación.
