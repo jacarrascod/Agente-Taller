@@ -65,7 +65,7 @@ El agente **no adivina**: todo dato de precio, stock o disponibilidad de agenda 
 |---|---|---|
 | Framework | **Next.js 15 (App Router) + TypeScript + Tailwind CSS 4** | Front y backend en un repo; las credenciales viven en Route Handlers del servidor y nunca llegan al navegador |
 | Base de datos | **Supabase (PostgreSQL)** | Requisito del enunciado; RLS + SQL editor + storage disponibles |
-| LLM | **Proveedor intercambiable** vía `AGENT_LLM_PROVIDER` — NVIDIA NIM (`meta/muse-glimmer-30b`, default), Groq (`openai/gpt-oss-120b`) u OpenAI (`gpt-5-mini`) | Los tres exponen (o son) una API **compatible con OpenAI** → un solo cliente (`llm.ts`) con `apiKey`/`baseURL`/`modelo` resueltos por proveedor. Decisión original: NVIDIA. Se agregó Groq y OpenAI tras medir que NVIDIA promedia ~18-22s/llamada (`INFORME-LATENCIA-CHAT.md`); Groq es 3-4x más rápido pero con cupos de free tier ajustados (8,000 tokens/min, 200,000/día), y OpenAI (`gpt-5-mini`) es la opción de pago sin esos cupos, barata (~$0.02 por agendamiento completo). Ver §9.5.1 |
+| LLM | **Proveedor intercambiable** vía `AGENT_LLM_PROVIDER` — NVIDIA NIM (`meta/muse-glimmer-30b`, default), Groq (`openai/gpt-oss-120b`), OpenAI (`gpt-5-mini`) o ia-gateway (perfil `auto:rapido`) | Los cuatro exponen (o son) una API **compatible con OpenAI** → un solo cliente (`llm.ts`) con `apiKey`/`baseURL`/`modelo` resueltos por proveedor. Decisión original: NVIDIA. Se agregó Groq y OpenAI tras medir que NVIDIA promedia ~18-22s/llamada (`INFORME-LATENCIA-CHAT.md`); Groq es 3-4x más rápido pero con cupos de free tier ajustados (8,000 tokens/min, 200,000/día), OpenAI (`gpt-5-mini`) es la opción de pago sin esos cupos, barata (~$0.02 por agendamiento completo), e ia-gateway (servicio propio) reparte cada petición entre varios proveedores gratuitos con failover, sin depender del cupo de uno solo. Ver §9.5.1 |
 | Agenda | **Google Calendar API v3 con Service Account** | Sin login interactivo; el calendario del taller se comparte con el email de la cuenta de servicio |
 | Imágenes | **Fotos reales genéricas** (sin marca Toyota), de fuentes de licencia abierta (Wikimedia Commons / Openverse), descargadas a `/public/` en tiempo de autoría | Sin hotlinking: funciona offline en runtime igual que los placeholders. Atribución en `public/CREDITOS-IMAGENES.md`. Los ítems sin foto confiable conservan el placeholder SVG de respaldo |
 | Moneda / zona | **PEN (S/), `America/Lima`, IGV 18 %** | Mercado peruano |
@@ -123,7 +123,7 @@ Estos valores viven en un solo módulo, `src/server/lib/taller.ts`, y se consume
      │                │                  │  PROVIDER)      │
 ┌────▼─────────┐ ┌────▼───────────┐ ┌────▼──────────┐ ┌────▼────────┐
 │   Supabase   │ │Google Calendar │ │ NVIDIA | Groq │ │    Brevo    │
-│  PostgreSQL  │ │  (taller@…)    │ │   | OpenAI    │ │ email 300/d │
+│  PostgreSQL  │ │  (taller@…)    │ │|OpenAI|gateway│ │ email 300/d │
 └──────────────┘ └────────────────┘ └───────────────┘ └─────────────┘
 ```
 
@@ -173,7 +173,7 @@ Agente-taller/
    │  │  ├─ prompt.ts         # system prompt y plantillas de rechazo
    │  │  ├─ tools.ts          # definiciones JSON Schema + dispatcher
    │  │  ├─ guardrails.ts     # detector de marca / off-topic
-   │  │  └─ llm.ts            # cliente OpenAI-compatible → NVIDIA | Groq | OpenAI (AGENT_LLM_PROVIDER)
+   │  │  └─ llm.ts            # cliente OpenAI-compatible → NVIDIA | Groq | OpenAI | gateway (AGENT_LLM_PROVIDER)
    │  ├─ services/
    │  │  ├─ catalogo.ts · inventario.ts · agenda.ts
    │  │  ├─ citas.ts          # consulta por email, cancelación
@@ -200,7 +200,7 @@ Agente-taller/
 
 ```bash
 # ── LLM (compatible OpenAI) — ver §9.5.1 ────────────────────────────
-AGENT_LLM_PROVIDER=nvidia            # nvidia | groq | openai — elige el proveedor que usa clienteLLM()
+AGENT_LLM_PROVIDER=nvidia            # nvidia | groq | openai | gateway — elige el proveedor que usa clienteLLM()
 
 # NVIDIA NIM (usado si AGENT_LLM_PROVIDER=nvidia o se deja vacío)
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
@@ -220,6 +220,14 @@ GROQ_API_KEY=                        # gsk_...
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-5-mini
 OPENAI_TOKEN=                        # sk-...
+
+# ia-gateway (usado si AGENT_LLM_PROVIDER=gateway) — servicio propio compatible
+# con OpenAI que reparte cada petición entre varios proveedores gratuitos con
+# failover, reintentos y control de cuotas. GATEWAY_MODEL es un perfil de
+# ruteo, no un modelo fijo.
+GATEWAY_BASE_URL=https://ia-agent-onf8.onrender.com/v1
+GATEWAY_MODEL=auto:rapido            # perfil con tool calling verificado (ver GET /v1/models)
+GATEWAY_API_KEY=                     # iag_live_... (se genera en el dashboard del gateway)
 
 AGENT_TOOL_MODE=auto                 # auto | native | json   (ver §9.5)
 AGENT_MAX_TOOL_ITERATIONS=5
@@ -273,7 +281,7 @@ RATE_LIMIT_CITAS_POR_MINUTO=5
 RATE_LIMIT_AGENDAR_POR_HORA=3
 ```
 
-**Regla de oro:** `SUPABASE_SERVICE_ROLE_KEY`, `NVIDIA_API_KEY`, `GROQ_API_KEY`, `OPENAI_TOKEN`, `GOOGLE_PRIVATE_KEY` y `BREVO_API_KEY` solo se leen dentro de `src/server/**`. Un check de CI debe fallar si aparecen fuera de esa carpeta.
+**Regla de oro:** `SUPABASE_SERVICE_ROLE_KEY`, `NVIDIA_API_KEY`, `GROQ_API_KEY`, `OPENAI_TOKEN`, `GATEWAY_API_KEY`, `GOOGLE_PRIVATE_KEY` y `BREVO_API_KEY` solo se leen dentro de `src/server/**`. Un check de CI debe fallar si aparecen fuera de esa carpeta.
 
 > **Nota sobre `EMAIL_REMITENTE`:** Brevo exige un remitente verificado. Con una cuenta Gmail gratuita se verifica la propia dirección (un correo de confirmación de Brevo). Los correos saldrán como *Toyota Taller Perú &lt;tu-correo@gmail.com&gt;*, lo cual es correcto para la demo. Un remitente tipo `citas@toyotatallerperu.pe` requeriría comprar el dominio y configurar SPF/DKIM.
 
@@ -1597,8 +1605,8 @@ Esta capa es obligatoria: sin ella, un modelo sin tool-calling nativo producirí
 La decisión original (§3) fue NVIDIA NIM en exclusiva. La campaña de
 `INFORME-LATENCIA-CHAT.md` mostró que **85-95 % del tiempo de un turno es el
 proveedor LLM**, así que se agregó `AGENT_LLM_PROVIDER` (`nvidia` | `groq` |
-`openai`) para poder cambiar de proveedor sin tocar código — los tres
-exponen (o son) una API compatible con el SDK `openai`, así que
+`openai` | `gateway`) para poder cambiar de proveedor sin tocar código — los
+cuatro exponen (o son) una API compatible con el SDK `openai`, así que
 `clienteLLM()` solo resuelve `apiKey`/`baseURL`/`modelo` según la variable
 (tabla completa en §5).
 
@@ -1625,8 +1633,10 @@ Por eso el reintento tiene **dos capas**, ninguna reemplaza a la otra:
 - `runtime.ts`: reintento explícito adicional alrededor de la llamada +
   consumo del stream, porque el reintento del SDK no cubre un stream que se
   corta a medio camino (justo lo medido con Groq). Solo reintenta
-  `APIConnectionError` / `RateLimitError` / `InternalServerError` — nunca
-  errores de negocio — y respeta el `retry-after` del 429 cuando es corto.
+  `APIConnectionError` / `RateLimitError` / `InternalServerError` y el
+  `APIError` sin `status` (error informado a mitad del stream, ver
+  ia-gateway abajo) — nunca errores de negocio — y respeta el
+  `retry-after` del 429 cuando es corto.
   Configurable con `AGENT_LLM_MAX_RETRIES` (default 2).
 
 > ⚠️ **El `retry-after` de un límite por TPM se mide en segundos; el de un
@@ -1644,6 +1654,29 @@ personalizado** con un 400 ("Only the default (1) value is supported").
 (`SOPORTA_TEMPERATURA_PERSONALIZADA`), no por el proveedor, así que si
 `OPENAI_MODEL` cambia a un modelo que sí lo soporta (p. ej. `gpt-4.1-mini`),
 `temperature` se vuelve a enviar solo.
+
+**ia-gateway** (`gateway`, perfil `auto:rapido` por defecto) es un servicio
+propio compatible con la API de OpenAI que reparte cada petición entre
+varios proveedores de IA gratuitos con failover, reintentos y control de
+cuotas. Conviene cuando no se quiere depender del cupo de un solo free tier
+(el problema medido con Groq). Detalles relevantes para el runtime:
+
+- `GATEWAY_MODEL` no es un modelo sino un **perfil de ruteo** (`auto`,
+  `auto:rapido`, …) y debe tener tool calling verificado (`GET /v1/models`
+  del gateway); si no, el gateway responde 400 `unsupported_parameter`
+  (param `tools`) y, con `AGENT_TOOL_MODE=auto`, el runtime cae a modo json.
+- El formato de las peticiones no cambia (`stream: true`, `tools`,
+  `tool_choice: "auto"`, `temperature`). Los perfiles no coinciden con el
+  regex de `SOPORTA_TEMPERATURA_PERSONALIZADA`, así que `temperature` se
+  sigue enviando.
+- La app está configurada en el gateway en modo de streaming *buffered*:
+  SSE válido con la respuesta completa al final y failover total entre
+  proveedores.
+- Errores antes del stream llegan como HTTP normal (429/503 con
+  `Retry-After`, 504) y los reintenta el SDK. Un fallo **a mitad del
+  stream** llega como evento de error, que el SDK convierte en
+  `APIError` con `status` undefined (`upstream_error`,
+  `deadline_exceeded`); `esErrorReintentable` lo trata como transitorio.
 
 ### 9.6 Guardrails (`src/server/agent/guardrails.ts`)
 
@@ -2275,7 +2308,7 @@ La campaña de medición hecha con esta instrumentación está en `PLAN-DE-PRUEB
 ### Transversales
 - **CA-29** Lighthouse ≥ 90 en Performance y ≥ 95 en Accessibility en `/` y `/repuestos`.
 - **CA-30** El chat funciona en móvil (360 px de ancho) sin scroll horizontal.
-- **CA-31** Con la API key del proveedor LLM activo inválida (`NVIDIA_API_KEY`, `GROQ_API_KEY` u `OPENAI_TOKEN`, según `AGENT_LLM_PROVIDER`), la web sigue navegable y el chat muestra un error digno.
+- **CA-31** Con la API key del proveedor LLM activo inválida (`NVIDIA_API_KEY`, `GROQ_API_KEY`, `OPENAI_TOKEN` o `GATEWAY_API_KEY`, según `AGENT_LLM_PROVIDER`), la web sigue navegable y el chat muestra un error digno.
 - **CA-32** `AGENT_TOOL_MODE=json` supera CA-01, CA-08 y CA-13 igual que `native`.
 - **CA-33** Con `BREVO_API_KEY` inválida, la cita **se crea igual**, la respuesta trae `email_enviado: false` y el agente dicta fecha, hora y dirección en el chat.
 - **CA-34** Reintentar dos veces el mismo agendamiento no envía dos correos (idempotencia por `clave_idem`).

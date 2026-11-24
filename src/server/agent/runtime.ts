@@ -143,11 +143,23 @@ function pareceIntentoDeToolIgnorado(texto: string): boolean {
 // OpenAI.APIConnectionError ("Connection error.") incluso respetando el
 // presupuesto de tokens/min de la cuenta gratuita — de ahí este reintento
 // explícito, además del de llm.ts.
-function esErrorReintentable(error: unknown): boolean {
+//
+// El último caso cubre un fallo informado A MITAD del stream: el gateway
+// (ia-gateway, AGENT_LLM_PROVIDER=gateway) y la propia OpenAI lo envían como
+// un evento de error dentro del SSE, que el SDK convierte en un APIError SIN
+// status (p. ej. code "upstream_error" o "deadline_exceeded"). Repetir la
+// llamada desde cero es seguro: el bucle de abajo descarta todo lo acumulado
+// (texto y tool_calls parciales) en cada reintento. Se excluye
+// APIConnectionError —que también tiene status undefined— solo para dejar
+// explícito que ese caso ya está cubierto por la primera condición.
+export function esErrorReintentable(error: unknown): boolean {
   return (
     error instanceof OpenAI.APIConnectionError ||
     error instanceof OpenAI.RateLimitError ||
-    error instanceof OpenAI.InternalServerError
+    error instanceof OpenAI.InternalServerError ||
+    (error instanceof OpenAI.APIError &&
+      error.status === undefined &&
+      !(error instanceof OpenAI.APIConnectionError))
   );
 }
 

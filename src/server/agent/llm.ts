@@ -1,8 +1,8 @@
-// Cliente OpenAI-compatible. Soporta tres proveedores intercambiables por
-// variable de entorno (AGENT_LLM_PROVIDER=nvidia|groq|openai): NVIDIA NIM
-// (SPEC.md §3, §5), Groq y OpenAI. Los tres exponen (o son) una API
-// compatible con el SDK de OpenAI, así que el resto del código (runtime.ts)
-// no necesita saber cuál está activo.
+// Cliente OpenAI-compatible. Soporta cuatro proveedores intercambiables por
+// variable de entorno (AGENT_LLM_PROVIDER=nvidia|groq|openai|gateway): NVIDIA
+// NIM (SPEC.md §3, §5), Groq, OpenAI e ia-gateway. Los cuatro exponen (o son)
+// una API compatible con el SDK de OpenAI, así que el resto del código
+// (runtime.ts) no necesita saber cuál está activo.
 //
 // Ver INFORME-LATENCIA-CHAT.md: NVIDIA NIM promedia ~18-22s por llamada;
 // Groq (gpt-oss-120b) promedia ~3-5s pero con ~15-20% de "Connection error"
@@ -13,11 +13,21 @@
 // (gpt-5-mini, elegido por barato — $0.25/$2 por MTok — y confiable en
 // tool-calling, sin los cupos gratuitos ajustados de Groq) es la tercera
 // opción, de pago.
+//
+// ia-gateway es un servicio propio, también compatible con la API de
+// OpenAI, que reparte cada petición entre varios proveedores gratuitos con
+// failover, reintentos y control de cuotas: evita depender del cupo de uno
+// solo. Ahí `model` no es un modelo fijo sino un perfil de ruteo (p. ej.
+// "auto:rapido"), que debe tener tool calling verificado — si no, el
+// gateway responde 400 unsupported_parameter (param "tools"). Esta app está
+// configurada allí en modo de streaming "buffered": recibe un SSE válido con
+// la respuesta completa al final. Un fallo a mitad del stream llega como un
+// evento de error (APIError sin status): ver esErrorReintentable en runtime.ts.
 
 import "server-only";
 import OpenAI from "openai";
 
-type Proveedor = "nvidia" | "groq" | "openai";
+type Proveedor = "nvidia" | "groq" | "openai" | "gateway";
 
 interface ConfigProveedor {
   apiKeyEnv: string;
@@ -51,11 +61,20 @@ const CONFIG_PROVEEDORES: Record<Proveedor, ConfigProveedor> = {
     modeloEnv: "OPENAI_MODEL",
     modeloPorDefecto: "gpt-5-mini",
   },
+  gateway: {
+    apiKeyEnv: "GATEWAY_API_KEY",
+    baseURLEnv: "GATEWAY_BASE_URL",
+    baseURLPorDefecto: "https://ia-agent-onf8.onrender.com/v1",
+    modeloEnv: "GATEWAY_MODEL",
+    // Perfil de ruteo del gateway, no un modelo: debe tener tool calling
+    // verificado (ver GET /v1/models del gateway).
+    modeloPorDefecto: "auto:rapido",
+  },
 };
 
 function proveedorConfigurado(): Proveedor {
   const valor = (process.env.AGENT_LLM_PROVIDER ?? "nvidia").toLowerCase();
-  if (valor === "groq" || valor === "openai") return valor;
+  if (valor === "groq" || valor === "openai" || valor === "gateway") return valor;
   if (valor !== "nvidia") {
     console.warn(`AGENT_LLM_PROVIDER="${valor}" no reconocido; usando "nvidia" por defecto.`);
   }
@@ -102,10 +121,12 @@ export const REINTENTOS_LLM = Number(process.env.AGENT_LLM_MAX_RETRIES ?? 2);
 // Only the default (1) value is supported." Detectado en vivo al probar
 // gpt-5-mini. Se detecta por el nombre del MODELO, no por el proveedor: si
 // mañana OPENAI_MODEL apunta a gpt-4.1-mini (que sí soporta temperature),
-// esto se ajusta solo.
+// esto se ajusta solo. Los perfiles del gateway ("auto", "auto:rapido", ...)
+// no coinciden con el regex, así que con gateway se sigue enviando
+// `temperature`.
 export const SOPORTA_TEMPERATURA_PERSONALIZADA = !/^(gpt-5|o1|o3|o4)(\D|$)/.test(MODELO_LLM);
 
-// Se registra una sola vez al arrancar el proceso: con dos proveedores
+// Se registra una sola vez al arrancar el proceso: con varios proveedores
 // intercambiables por env var, es fácil arrancar el servidor sin darse
 // cuenta de cuál quedó activo. Nunca se loguea la API key.
 console.info(
